@@ -1,1 +1,52 @@
-"# ACDS-FYP Project" 
+"# ?? ACDS-FYP: AI-Driven Cyber Defense System"
+ECHO is on.
+"This project is a modular cybersecurity framework designed for automated threat detection, analysis, and response using machine learning and orchestration pipelines."
+ECHO is on.
+"## ?? Project Structure"
+"\\\`bash"
+"ACDS-FYP/"
+"ÃÄÄ backend/           # Core APIs, ML models, automation logic"
+"ÃÄÄ frontend/          # Streamlit dashboard for visualization"
+"ÃÄÄ lab/               # Simulated attacker, sensor, and victim nodes"
+"ÃÄÄ data/              # Raw and processed datasets"
+"ÃÄÄ docker/            # Container configurations"
+"ÃÄÄ docs/              # Documentation and architecture references"
+"ÀÄÄ .github/workflows/ # CI/CD pipelines"
+"\\\`"
+ECHO is on.
+"## ?? Setup Instructions"
+"1. Clone the repository:"
+"   \\\`bash"
+"   git clone https://github.com/sultan9723/ACDS-FYP.git"
+"   cd ACDS-FYP"
+"   \\\`"
+ECHO is on.
+"2. Create your virtual environment and install dependencies:"
+"   \\\`bash"
+"   pip install -r requirements.txt"
+"   \\\`"
+ECHO is on.
+"3. Configure environment variables:"
+"   \\\`bash"
+"   cp .env.example .env"
+"   \\\`"
+ECHO is on.
+"4. Run using Docker:"
+"   \\\`bash"
+"   docker-compose up --build"
+"   \\\`"
+ECHO is on.
+"## ?? Components"
+"- *Backend:* FastAPI-based microservice for ML + automation."
+"- *Frontend:* Streamlit dashboard for visual analytics."
+"- *Lab:* Simulated network with attacker/sensor/victim models."
+"- *Orchestration:* JSON-defined automation rules for incident response."
+ECHO is on.
+"## ?? Tech Stack"
+"- Python 3.10"
+"- FastAPI / Streamlit"
+"- Docker & Docker Compose"
+"- GitHub Actions (CI/CD)"
+ECHO is on.
+"## ????? Author"
+"Developed by Sultan Qaiser and team as part of the Final Year Project (ACDS-FYP)."

@@ -4,119 +4,425 @@ import emailDetails from "../mocks/emailDetails.json";
 
 // Create an axios instance
 // Use environment variable for API URL, fallback to localhost
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000/api";
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000/api/v1";
 
 const api = axios.create({
   baseURL: API_URL,
-  timeout: 5000,
+  timeout: 10000,
+  headers: {
+    "Content-Type": "application/json",
+  },
 });
 
-// Helper to determine if we should use mock data
-// In a real scenario, you might toggle this with an env var like VITE_USE_MOCK
-const USE_MOCK = true;
-
-// Mock API functions
-export const fetchStats = async () => {
-  if (!USE_MOCK) {
-    const response = await api.get("/stats");
-    return response.data;
+// Add auth token to requests
+api.interceptors.request.use((config) => {
+  const token = localStorage.getItem("token");
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
   }
-  // Simulate network delay
-  return new Promise((resolve) => {
-    setTimeout(() => resolve(phishingData.stats), 500);
-  });
+  return config;
+});
+
+// Handle auth errors
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401) {
+      localStorage.removeItem("token");
+      localStorage.removeItem("user");
+    }
+    return Promise.reject(error);
+  }
+);
+
+// Toggle between mock and real API
+// Set to false to use real backend, true for mock data
+const USE_MOCK = import.meta.env.VITE_USE_MOCK === "true" || false;
+
+// ==================== AUTH API ====================
+
+export const loginUser = async (email, password) => {
+  try {
+    const response = await api.post("/auth/login", { email, password });
+    return response.data;
+  } catch (error) {
+    throw error.response?.data || { message: "Login failed" };
+  }
+};
+
+export const registerUser = async (userData) => {
+  try {
+    const response = await api.post("/auth/register", userData);
+    return response.data;
+  } catch (error) {
+    throw error.response?.data || { message: "Registration failed" };
+  }
+};
+
+export const verifyToken = async () => {
+  try {
+    const response = await api.post("/auth/verify");
+    return response.data;
+  } catch (error) {
+    throw error.response?.data || { message: "Token verification failed" };
+  }
+};
+
+export const getUserProfile = async () => {
+  try {
+    const response = await api.get("/auth/profile");
+    return response.data;
+  } catch (error) {
+    throw error.response?.data || { message: "Failed to get profile" };
+  }
+};
+
+// ==================== DASHBOARD API ====================
+
+export const fetchStats = async () => {
+  if (USE_MOCK) {
+    return new Promise((resolve) => {
+      setTimeout(() => resolve(phishingData.stats), 500);
+    });
+  }
+  try {
+    const response = await api.get("/dashboard/stats");
+    return response.data;
+  } catch (error) {
+    console.error("Error fetching stats:", error);
+    return phishingData.stats;
+  }
 };
 
 export const fetchThreatsOverTime = async () => {
-  if (!USE_MOCK) {
-    const response = await api.get("/threats/history");
-    return response.data;
+  if (USE_MOCK) {
+    return new Promise((resolve) => {
+      setTimeout(() => resolve(phishingData.detectionsOverTime), 500);
+    });
   }
-  return new Promise((resolve) => {
-    setTimeout(() => resolve(phishingData.detectionsOverTime), 500);
-  });
+  try {
+    const response = await api.get("/dashboard/activity");
+    return response.data.activity || phishingData.detectionsOverTime;
+  } catch (error) {
+    console.error("Error fetching threats over time:", error);
+    return phishingData.detectionsOverTime;
+  }
 };
 
 export const fetchThreatTypes = async () => {
-  if (!USE_MOCK) {
-    const response = await api.get("/threats/types");
-    return response.data;
+  if (USE_MOCK) {
+    return new Promise((resolve) => {
+      setTimeout(() => resolve(phishingData.threatTypes), 500);
+    });
   }
-  return new Promise((resolve) => {
-    setTimeout(() => resolve(phishingData.threatTypes), 500);
-  });
+  try {
+    const response = await api.get("/dashboard/stats");
+    return response.data.threat_types || phishingData.threatTypes;
+  } catch (error) {
+    console.error("Error fetching threat types:", error);
+    return phishingData.threatTypes;
+  }
 };
 
 export const fetchAccuracyOverTime = async () => {
-  if (!USE_MOCK) {
-    // const response = await api.get("/model/accuracy");
-    // return response.data;
-    return [];
+  if (USE_MOCK) {
+    return new Promise((resolve) => {
+      setTimeout(() => resolve(phishingData.accuracyOverTime), 500);
+    });
   }
-  return new Promise((resolve) => {
-    setTimeout(() => resolve(phishingData.accuracyOverTime), 500);
-  });
+  try {
+    const response = await api.get("/dashboard/model-status");
+    return response.data.accuracy_history || phishingData.accuracyOverTime;
+  } catch (error) {
+    console.error("Error fetching accuracy:", error);
+    return phishingData.accuracyOverTime;
+  }
 };
 
 export const fetchConfusionMatrix = async () => {
-  if (!USE_MOCK) {
-    // const response = await api.get("/model/confusion-matrix");
-    // return response.data;
-    return { tp: 0, fp: 0, fn: 0, tn: 0 };
+  if (USE_MOCK) {
+    return new Promise((resolve) => {
+      setTimeout(() => resolve(phishingData.confusionMatrix), 500);
+    });
   }
-  return new Promise((resolve) => {
-    setTimeout(() => resolve(phishingData.confusionMatrix), 500);
-  });
+  try {
+    const response = await api.get("/dashboard/model-status");
+    return response.data.confusion_matrix || phishingData.confusionMatrix;
+  } catch (error) {
+    console.error("Error fetching confusion matrix:", error);
+    return phishingData.confusionMatrix;
+  }
 };
+
+export const fetchModelStatus = async () => {
+  try {
+    const response = await api.get("/dashboard/model-status");
+    return response.data;
+  } catch (error) {
+    console.error("Error fetching model status:", error);
+    return null;
+  }
+};
+
+// ==================== THREATS API ====================
 
 export const fetchThreats = async () => {
-  if (!USE_MOCK) {
-    const response = await api.get("/threats/recent");
-    return response.data;
+  if (USE_MOCK) {
+    return new Promise((resolve) => {
+      setTimeout(() => resolve(phishingData.recentEmails), 500);
+    });
   }
-  return new Promise((resolve) => {
-    setTimeout(() => resolve(phishingData.recentEmails), 500);
-  });
+  try {
+    const response = await api.get("/dashboard/recent-threats");
+    return response.data.threats || phishingData.recentEmails;
+  } catch (error) {
+    console.error("Error fetching threats:", error);
+    return phishingData.recentEmails;
+  }
 };
 
-export const fetchIncidentDetails = async (id) => {
-  if (!USE_MOCK) {
-    const response = await api.get(`/incidents/${id}`);
+export const fetchAllThreats = async (params = {}) => {
+  try {
+    const response = await api.get("/threats/list", { params });
     return response.data;
+  } catch (error) {
+    console.error("Error fetching all threats:", error);
+    return { threats: [], total: 0 };
   }
-  return new Promise((resolve) => {
+};
+
+export const fetchThreatDetails = async (threatId) => {
+  try {
+    const response = await api.get(`/threats/${threatId}`);
+    return response.data;
+  } catch (error) {
+    console.error("Error fetching threat details:", error);
+    throw error;
+  }
+};
+
+export const scanEmail = async (emailContent, subject = "", sender = "") => {
+  try {
+    const response = await api.post("/threats/scan", {
+      content: emailContent,
+      subject,
+      sender,
+    });
+    return response.data;
+  } catch (error) {
+    console.error("Error scanning email:", error);
+    throw error.response?.data || { message: "Scan failed" };
+  }
+};
+
+export const scanEmailBatch = async (emails) => {
+  try {
+    const response = await api.post("/threats/scan/batch", { emails });
+    return response.data;
+  } catch (error) {
+    console.error("Error batch scanning:", error);
+    throw error.response?.data || { message: "Batch scan failed" };
+  }
+};
+
+// ==================== FEEDBACK API ====================
+
+export const submitFeedback = async (feedbackData) => {
+  try {
+    const response = await api.post("/feedback/", feedbackData);
+    return response.data;
+  } catch (error) {
+    console.error("Error submitting feedback:", error);
+    throw error.response?.data || { message: "Feedback submission failed" };
+  }
+};
+
+export const getFeedbackSummary = async () => {
+  try {
+    const response = await api.get("/feedback/summary");
+    return response.data;
+  } catch (error) {
+    console.error("Error fetching feedback summary:", error);
+    return null;
+  }
+};
+
+// ==================== REPORTS API ====================
+
+export const generateReport = async (reportType, options = {}) => {
+  try {
+    const response = await api.post("/reports/generate", {
+      report_type: reportType,
+      ...options,
+    });
+    return response.data;
+  } catch (error) {
+    console.error("Error generating report:", error);
+    throw error.response?.data || { message: "Report generation failed" };
+  }
+};
+
+export const getReportTypes = async () => {
+  try {
+    const response = await api.get("/reports/types");
+    return response.data;
+  } catch (error) {
+    console.error("Error fetching report types:", error);
+    return [];
+  }
+};
+
+export const exportReport = async (reportId, format = "pdf") => {
+  try {
+    const response = await api.get(`/reports/export/${reportId}`, {
+      params: { format },
+    });
+    return response.data;
+  } catch (error) {
+    console.error("Error exporting report:", error);
+    throw error.response?.data || { message: "Report export failed" };
+  }
+};
+
+// ==================== LEGACY FUNCTIONS ====================
+
+export const fetchIncidentDetails = async (id) => {
+  if (USE_MOCK) {
+    return new Promise((resolve) => {
+      const detail = emailDetails.find((d) => d.id === id) || emailDetails[0];
+      setTimeout(() => resolve(detail), 500);
+    });
+  }
+  try {
+    const response = await api.get(`/threats/${id}`);
+    return response.data;
+  } catch (error) {
     const detail = emailDetails.find((d) => d.id === id) || emailDetails[0];
-    setTimeout(() => resolve(detail), 500);
-  });
+    return detail;
+  }
 };
 
 export const fetchModelLogs = async () => {
-  if (!USE_MOCK) {
-    // const response = await api.get("/model/logs");
-    // return response.data;
-    return [];
+  if (USE_MOCK) {
+    return new Promise((resolve) => {
+      setTimeout(() => resolve(phishingData.modelLogs), 500);
+    });
   }
-  return new Promise((resolve) => {
-    setTimeout(() => resolve(phishingData.modelLogs), 500);
-  });
+  try {
+    const response = await api.get("/dashboard/model-status");
+    return response.data.logs || phishingData.modelLogs;
+  } catch (error) {
+    return phishingData.modelLogs;
+  }
 };
 
 export const fetchAllEmails = async () => {
-  // For the Phishing Module list
-  return new Promise((resolve) => {
-    setTimeout(() => resolve(emailDetails), 500);
-  });
+  if (USE_MOCK) {
+    return new Promise((resolve) => {
+      setTimeout(() => resolve(emailDetails), 500);
+    });
+  }
+  try {
+    const response = await api.get("/threats/list");
+    return response.data.threats || emailDetails;
+  } catch (error) {
+    return emailDetails;
+  }
 };
 
-export const fetchFeedbackSummary = async () => {
-  if (!USE_MOCK) {
-    // const response = await api.get("/model/feedback-summary");
-    // return response.data;
-    return { truePositive: 0, falsePositive: 0 };
+// ==================== TESTING API ====================
+
+export const getTestSamples = async (sampleType = "mixed", count = 5) => {
+  try {
+    const response = await api.get("/testing/samples", {
+      params: { sample_type: sampleType, count },
+    });
+    return response.data;
+  } catch (error) {
+    console.error("Error fetching test samples:", error);
+    throw error.response?.data || { message: "Failed to get test samples" };
   }
-  return new Promise((resolve) => {
-    setTimeout(() => resolve(phishingData.feedbackSummary), 300);
-  });
+};
+
+export const runAutomatedTest = async (count = 10, includeResponse = true) => {
+  try {
+    const response = await api.post("/testing/run", null, {
+      params: { count, include_response: includeResponse },
+    });
+    return response.data;
+  } catch (error) {
+    console.error("Error running automated test:", error);
+    throw error.response?.data || { message: "Test run failed" };
+  }
+};
+
+export const getTestSession = async (sessionId) => {
+  try {
+    const response = await api.get(`/testing/session/${sessionId}`);
+    return response.data;
+  } catch (error) {
+    console.error("Error fetching test session:", error);
+    throw error.response?.data || { message: "Failed to get session" };
+  }
+};
+
+export const getTestSessions = async (limit = 10) => {
+  try {
+    const response = await api.get("/testing/sessions", { params: { limit } });
+    return response.data;
+  } catch (error) {
+    console.error("Error fetching test sessions:", error);
+    return { sessions: [], total: 0 };
+  }
+};
+
+export const getTestLogs = async (
+  sessionId = null,
+  eventType = null,
+  limit = 50
+) => {
+  try {
+    const params = { limit };
+    if (sessionId) params.session_id = sessionId;
+    if (eventType) params.event_type = eventType;
+
+    const response = await api.get("/testing/logs", { params });
+    return response.data;
+  } catch (error) {
+    console.error("Error fetching test logs:", error);
+    return { logs: [], total: 0 };
+  }
+};
+
+export const getTestReports = async (limit = 10) => {
+  try {
+    const response = await api.get("/testing/reports", { params: { limit } });
+    return response.data;
+  } catch (error) {
+    console.error("Error fetching test reports:", error);
+    return { reports: [], total: 0 };
+  }
+};
+
+export const getTestReport = async (reportId) => {
+  try {
+    const response = await api.get(`/testing/reports/${reportId}`);
+    return response.data;
+  } catch (error) {
+    console.error("Error fetching test report:", error);
+    throw error.response?.data || { message: "Failed to get report" };
+  }
+};
+
+// ==================== HEALTH CHECK ====================
+
+export const checkBackendHealth = async () => {
+  try {
+    const response = await axios.get("http://localhost:8000/health");
+    return { connected: true, ...response.data };
+  } catch (error) {
+    return { connected: false, error: error.message };
+  }
 };
 
 export default api;

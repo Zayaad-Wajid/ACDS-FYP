@@ -1,93 +1,117 @@
 import React from "react";
-import { Card, CardHeader, CardTitle, CardContent } from "../ui/Card";
-import { Button } from "../ui/Button";
 import { useDashboard } from "../../context/DashboardContext";
 
 const IncidentDetails = () => {
-  const { selectedIncident } = useDashboard();
+  const dashboardData = useDashboard() || {};
+  const { selectedIncident } = dashboardData;
 
   if (!selectedIncident) {
     return (
-      <Card className="bg-slate-900/50 border-slate-800 h-full flex items-center justify-center">
-        <p className="text-slate-500">Select an email to view details</p>
-      </Card>
+      <div className="bg-slate-900/60 border border-slate-800 rounded-lg p-6 h-full flex items-center justify-center">
+        <p className="text-slate-500 text-sm">
+          Select an email to view details
+        </p>
+      </div>
     );
   }
 
   return (
-    <Card className="bg-slate-900/50 border-slate-800 h-full">
-      <CardHeader>
-        <CardTitle className="text-slate-200">Incident Details</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="grid grid-cols-1 gap-4 text-sm">
-          <div>
-            <p className="text-slate-500 text-xs">Date & Time</p>
-            <p className="text-slate-200">{selectedIncident.date}</p>
+    <div className="bg-slate-900/60 border border-slate-800 rounded-lg h-full">
+      <div className="p-4 border-b border-slate-800">
+        <h3 className="text-sm font-semibold text-slate-300">
+          Incident Details
+        </h3>
+      </div>
+      <div className="p-4 space-y-4">
+        {/* Details Grid */}
+        <div className="space-y-3 text-sm">
+          <div className="flex justify-between">
+            <span className="text-slate-500">Date & Time</span>
+            <span className="text-slate-300">
+              {selectedIncident?.date || "N/A"}
+            </span>
           </div>
-          <div>
-            <p className="text-slate-500 text-xs">Sender</p>
-            <p className="text-slate-200 break-all">
+          <div className="flex justify-between">
+            <span className="text-slate-500">Description</span>
+            <span className="text-slate-300">
+              {selectedIncident?.prediction || "N/A"}
+            </span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-slate-500">Source IP</span>
+            <span className="text-slate-300 font-mono text-xs">
+              {selectedIncident?.sourceIp || "202.122.44.18"}
+            </span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-slate-500">Target Account</span>
+            <span className="text-slate-300 text-xs truncate max-w-[150px]">
               {selectedIncident.sender}
-            </p>
+            </span>
           </div>
-          <div>
-            <p className="text-slate-500 text-xs">Subject</p>
-            <p className="text-slate-200">{selectedIncident.subject}</p>
-          </div>
-        </div>
-
-        <div>
-          <p className="text-slate-500 text-xs mb-1">Confidence</p>
-          <div className="flex items-center gap-2">
-            <span className="text-2xl font-bold text-slate-100">
+          <div className="flex justify-between">
+            <span className="text-slate-500">Confidence</span>
+            <span className="text-slate-300">
               {selectedIncident.confidence}%
             </span>
-            <span
-              className={`text-xs px-2 py-0.5 rounded-full ${
-                selectedIncident.prediction === "Phishing"
-                  ? "bg-red-900/50 text-red-200"
-                  : "bg-green-900/50 text-green-200"
-              }`}
-            >
-              {selectedIncident.prediction}
-            </span>
           </div>
         </div>
 
+        {/* Explanation */}
         <div>
           <p className="text-slate-500 text-xs mb-1">Explanation</p>
-          <p className="text-slate-300 text-sm leading-relaxed bg-slate-800/50 p-3 rounded-md border border-slate-700">
+          <p className="text-slate-400 text-xs leading-relaxed">
             {selectedIncident.explanation}
           </p>
         </div>
 
-        <div>
-          <p className="text-slate-500 text-xs mb-1">Automated Action</p>
-          <p className="text-blue-300 text-sm font-medium">
-            {selectedIncident.action}
-          </p>
-        </div>
-
-        <div className="pt-4 border-t border-slate-800">
-          <p className="text-slate-500 text-xs mb-2">Analyst Feedback</p>
-          <div className="flex gap-2">
-            <Button
-              variant="outline"
-              className="flex-1 border-green-900/50 text-green-400 hover:bg-green-900/20 hover:text-green-300"
-            >
-              True Positive
-            </Button>
-            <Button
-              variant="outline"
-              className="flex-1 border-red-900/50 text-red-400 hover:bg-red-900/20 hover:text-red-300"
-            >
-              False Positive
-            </Button>
+        {/* Automated Action */}
+        <div className="pt-2 border-t border-slate-800">
+          <p className="text-slate-500 text-xs mb-2">Automated Action</p>
+          <div className="space-y-1 text-xs">
+            <p className="text-slate-400">
+              <span className="text-slate-500">Account</span>{" "}
+              <span className="text-slate-300">temporarily locked</span>
+            </p>
+            <p className="text-slate-400">
+              <span className="text-slate-500">Source IP blocked</span>{" "}
+              <span className="text-slate-300">(Firewall)</span>
+            </p>
           </div>
         </div>
-      </CardContent>
-    </Card>
+
+        {/* Analyst Ticket */}
+        <div className="text-xs text-slate-400">
+          A <span className="text-blue-400">ticket</span> logged for{" "}
+          <span className="text-slate-300">SOC analyst</span>
+        </div>
+
+        {/* Feedback Buttons */}
+        <div className="flex gap-2 pt-2">
+          <button className="flex-1 px-3 py-2 text-xs font-medium text-slate-300 bg-slate-800/50 border border-slate-700 rounded hover:bg-slate-700/50 transition-colors">
+            True Positive
+          </button>
+          <button className="flex-1 px-3 py-2 text-xs font-medium text-blue-400 bg-blue-900/20 border border-blue-800/50 rounded hover:bg-blue-900/30 transition-colors">
+            False Positive
+          </button>
+        </div>
+
+        {/* Feedback Log */}
+        <div className="pt-4 border-t border-slate-800">
+          <p className="text-slate-500 text-xs mb-3">Feedback Log</p>
+          <div className="flex justify-around">
+            <div className="text-center">
+              <p className="text-xs text-slate-500">True Positive</p>
+              <p className="text-lg font-semibold text-slate-300">12</p>
+            </div>
+            <div className="text-center">
+              <p className="text-xs text-slate-500">False Positive</p>
+              <p className="text-lg font-semibold text-slate-300">3</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 };
 

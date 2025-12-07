@@ -1,29 +1,59 @@
 import React from "react";
 import {
-  LineChart,
-  Line,
+  AreaChart,
+  Area,
   XAxis,
   YAxis,
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
 } from "recharts";
-import { Card, CardHeader, CardTitle, CardContent } from "../ui/Card";
 import { useDashboard } from "../../context/DashboardContext";
 
 const ModelPerformanceMetrics = () => {
-  const { accuracyOverTimeData, confusionMatrixData } = useDashboard();
+  const dashboardData = useDashboard() || {};
+  const {
+    accuracyOverTimeData = [],
+    confusionMatrixData = { tp: 0, fp: 0, fn: 0, tn: 0 },
+  } = dashboardData;
+
+  // Ensure data is safe
+  const safeAccuracyData = Array.isArray(accuracyOverTimeData)
+    ? accuracyOverTimeData
+    : [];
+  const safeConfusionData = confusionMatrixData || {
+    tp: 0,
+    fp: 0,
+    fn: 0,
+    tn: 0,
+  };
 
   return (
-    <div className="grid grid-cols-3 gap-6">
-      <Card className="col-span-2 bg-slate-900/50 border-slate-800">
-        <CardHeader>
-          <CardTitle className="text-slate-200">Accuracy Over Time</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="h-[200px] w-full">
+    <div>
+      <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-4">
+        Model Performance
+      </h2>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Accuracy Over Time */}
+        <div className="bg-slate-900/60 border border-slate-800 rounded-lg p-4">
+          <h3 className="text-sm font-semibold text-slate-300 mb-4">
+            Accuracy Over Time
+          </h3>
+          <div className="h-[160px] w-full">
             <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={accuracyOverTimeData}>
+              <AreaChart data={safeAccuracyData}>
+                <defs>
+                  <linearGradient
+                    id="colorAccuracy"
+                    x1="0"
+                    y1="0"
+                    x2="0"
+                    y2="1"
+                  >
+                    <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3} />
+                    <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
                 <CartesianGrid
                   strokeDasharray="3 3"
                   stroke="#1e293b"
@@ -32,97 +62,71 @@ const ModelPerformanceMetrics = () => {
                 <XAxis dataKey="time" hide />
                 <YAxis
                   domain={[60, 100]}
-                  stroke="#64748b"
-                  tick={{ fill: "#64748b", fontSize: 12 }}
+                  stroke="#475569"
+                  tick={{ fill: "#64748b", fontSize: 11 }}
                   tickLine={false}
                   axisLine={false}
                 />
                 <Tooltip
                   contentStyle={{
                     backgroundColor: "#0f172a",
-                    borderColor: "#1e293b",
+                    borderColor: "#334155",
                     color: "#f1f5f9",
+                    fontSize: 12,
                   }}
                 />
-                <Line
+                <Area
                   type="monotone"
-                  dataKey="value"
-                  stroke="#60a5fa"
+                  dataKey="accuracy"
+                  stroke="#3b82f6"
                   strokeWidth={2}
-                  dot={false}
-                  fill="url(#colorValue)"
+                  fill="url(#colorAccuracy)"
                 />
-              </LineChart>
+              </AreaChart>
             </ResponsiveContainer>
           </div>
-        </CardContent>
-      </Card>
+        </div>
 
-      <div className="space-y-6">
-        <Card className="bg-slate-900/50 border-slate-800">
-          <CardHeader>
-            <CardTitle className="text-slate-200">Confusion Matrix</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-2 gap-4 h-full content-center">
-              <div className="bg-slate-950/50 p-4 rounded-lg text-center border border-slate-800">
-                <p className="text-slate-500 text-xs uppercase tracking-wider">
-                  TP
-                </p>
-                <p className="text-2xl font-bold text-green-400">
-                  {confusionMatrixData.tp}
-                </p>
-              </div>
-              <div className="bg-slate-950/50 p-4 rounded-lg text-center border border-slate-800">
-                <p className="text-slate-500 text-xs uppercase tracking-wider">
-                  FP
-                </p>
-                <p className="text-2xl font-bold text-red-400">
-                  {confusionMatrixData.fp}
-                </p>
-              </div>
-              <div className="bg-slate-950/50 p-4 rounded-lg text-center border border-slate-800">
-                <p className="text-slate-500 text-xs uppercase tracking-wider">
-                  FN
-                </p>
-                <p className="text-2xl font-bold text-yellow-400">
-                  {confusionMatrixData.fn}
-                </p>
-              </div>
-              <div className="bg-slate-950/50 p-4 rounded-lg text-center border border-slate-800">
-                <p className="text-slate-500 text-xs uppercase tracking-wider">
-                  TN
-                </p>
-                <p className="text-2xl font-bold text-blue-400">
-                  {confusionMatrixData.tn}
-                </p>
-              </div>
+        {/* Confusion Matrix */}
+        <div className="bg-slate-900/60 border border-slate-800 rounded-lg p-4">
+          <h3 className="text-sm font-semibold text-slate-300 mb-4">
+            Confusion Matrix
+          </h3>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="bg-slate-950/50 p-4 rounded text-center">
+              <p className="text-slate-500 text-xs uppercase tracking-wider mb-1">
+                TP
+              </p>
+              <p className="text-2xl font-bold text-slate-200">
+                {safeConfusionData.tp || 0}
+              </p>
             </div>
-          </CardContent>
-        </Card>
-
-        <Card className="bg-slate-900/50 border-slate-800">
-          <CardHeader>
-            <CardTitle className="text-slate-200">Feedback Log</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex justify-between items-center px-2">
-              <div className="text-center">
-                <p className="text-slate-500 text-xs uppercase">
-                  True Positive
-                </p>
-                <p className="text-xl font-bold text-green-400">12</p>
-              </div>
-              <div className="h-8 w-px bg-slate-800"></div>
-              <div className="text-center">
-                <p className="text-slate-500 text-xs uppercase">
-                  False Positive
-                </p>
-                <p className="text-xl font-bold text-red-400">3</p>
-              </div>
+            <div className="bg-slate-950/50 p-4 rounded text-center">
+              <p className="text-slate-500 text-xs uppercase tracking-wider mb-1">
+                FP
+              </p>
+              <p className="text-2xl font-bold text-slate-200">
+                {safeConfusionData.fp || 0}
+              </p>
             </div>
-          </CardContent>
-        </Card>
+            <div className="bg-slate-950/50 p-4 rounded text-center">
+              <p className="text-slate-500 text-xs uppercase tracking-wider mb-1">
+                FN
+              </p>
+              <p className="text-2xl font-bold text-slate-200">
+                {safeConfusionData.fn || 0}
+              </p>
+            </div>
+            <div className="bg-slate-950/50 p-4 rounded text-center">
+              <p className="text-slate-500 text-xs uppercase tracking-wider mb-1">
+                TN
+              </p>
+              <p className="text-2xl font-bold text-slate-200">
+                {safeConfusionData.tn || 0}
+              </p>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );

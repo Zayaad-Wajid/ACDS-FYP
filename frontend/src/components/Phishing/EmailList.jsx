@@ -5,7 +5,9 @@ import { useDashboard } from "../../context/DashboardContext";
 import { fetchIncidentDetails } from "../../utils/api";
 
 const EmailList = () => {
-  const { allEmails, setSelectedIncident } = useDashboard();
+  const dashboardData = useDashboard() || {};
+  const allEmails = dashboardData.allEmails || [];
+  const setSelectedIncident = dashboardData.setSelectedIncident || (() => {});
 
   const handleRowClick = async (id) => {
     const details = await fetchIncidentDetails(id);

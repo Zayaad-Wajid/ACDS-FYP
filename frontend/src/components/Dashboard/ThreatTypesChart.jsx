@@ -4,51 +4,60 @@ import {
   Bar,
   XAxis,
   YAxis,
-  CartesianGrid,
   Tooltip,
   ResponsiveContainer,
   Cell,
 } from "recharts";
-import { Card, CardHeader, CardTitle, CardContent } from "../ui/Card";
 import { useDashboard } from "../../context/DashboardContext";
 
 const ThreatTypesChart = () => {
-  const { threatTypesData } = useDashboard();
-  const colors = ["#3b82f6", "#60a5fa", "#93c5fd"];
+  const dashboardData = useDashboard() || {};
+  const { threatTypesData = [] } = dashboardData;
+  const colors = ["#64748b", "#3b82f6", "#1e3a5f"];
+
+  // Ensure data is an array
+  const safeData = Array.isArray(threatTypesData) ? threatTypesData : [];
+
+  // Take top 3 for the legend display
+  const topThreats = safeData.slice(0, 3);
 
   return (
-    <Card className="bg-slate-900/50 border-slate-800">
-      <CardHeader>
-        <CardTitle className="text-slate-200">Phishing Categories</CardTitle>
-      </CardHeader>
-      <CardContent>
-        <div className="h-[200px] w-full">
+    <div className="bg-slate-900/60 border border-slate-800 rounded-lg p-4">
+      <h3 className="text-sm font-semibold text-slate-300 mb-4">
+        Top Threat Types
+      </h3>
+      <div className="flex gap-6">
+        {/* Legend */}
+        <div className="flex flex-col justify-center space-y-3">
+          {topThreats.map((item, index) => (
+            <div key={item?.name || index} className="flex items-center gap-2">
+              <div
+                className="w-3 h-3 rounded-sm"
+                style={{ backgroundColor: colors[index] }}
+              />
+              <span className="text-xs text-slate-400">
+                {item?.name || "Unknown"}
+              </span>
+            </div>
+          ))}
+        </div>
+        {/* Chart */}
+        <div className="h-[150px] flex-1">
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={threatTypesData} layout="vertical">
-              <CartesianGrid
-                strokeDasharray="3 3"
-                stroke="#1e293b"
-                horizontal={false}
-              />
-              <XAxis type="number" hide />
-              <YAxis
-                dataKey="name"
-                type="category"
-                width={100}
-                tick={{ fill: "#94a3b8", fontSize: 11 }}
-                tickLine={false}
-                axisLine={false}
-              />
+            <BarChart data={topThreats}>
+              <XAxis dataKey="name" hide />
+              <YAxis hide />
               <Tooltip
                 cursor={{ fill: "#1e293b" }}
                 contentStyle={{
                   backgroundColor: "#0f172a",
-                  borderColor: "#1e293b",
+                  borderColor: "#334155",
                   color: "#f1f5f9",
+                  fontSize: 12,
                 }}
               />
-              <Bar dataKey="value" radius={[0, 4, 4, 0]} barSize={20}>
-                {threatTypesData.map((entry, index) => (
+              <Bar dataKey="value" radius={[4, 4, 0, 0]} barSize={40}>
+                {topThreats.map((entry, index) => (
                   <Cell
                     key={`cell-${index}`}
                     fill={colors[index % colors.length]}
@@ -58,8 +67,8 @@ const ThreatTypesChart = () => {
             </BarChart>
           </ResponsiveContainer>
         </div>
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   );
 };
 

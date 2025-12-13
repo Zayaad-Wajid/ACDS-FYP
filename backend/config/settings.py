@@ -38,11 +38,14 @@ DEFAULT_ADMIN_EMAIL: str = "admin@acds.com"
 DEFAULT_ADMIN_PASSWORD: str = "admin123"
 
 # =============================================================================
-# ML MODEL SETTINGS
+# ML MODEL SETTINGS (v2.0.0 - TF-IDF + Logistic Regression)
 # =============================================================================
-MODEL_PATH: str = os.getenv("MODEL_PATH", "models/phishing_model.pkl")
-MODEL_INFO_PATH: str = os.getenv("MODEL_INFO_PATH", "models/model_info.json")
+MODEL_PATH: str = os.getenv("MODEL_PATH", "ml/models/phishing_model.pkl")
+MODEL_INFO_PATH: str = os.getenv("MODEL_INFO_PATH", "ml/models/model_info.json")
 PHISHING_CONFIDENCE_THRESHOLD: float = 0.5  # Threshold to classify as phishing
+
+# Incident Database (JSON-based)
+INCIDENTS_DB_PATH: str = os.getenv("INCIDENTS_DB_PATH", "data/incidents.json")
 
 # =============================================================================
 # API SETTINGS
@@ -63,14 +66,13 @@ RATE_LIMIT_REQUESTS: int = 100  # requests per minute
 RATE_LIMIT_WINDOW: int = 60  # seconds
 
 # =============================================================================
-# THREAT DETECTION SETTINGS
+# THREAT DETECTION SETTINGS (Updated v2.0.0)
 # =============================================================================
+# Severity based on risk_score: LOW (0-39), MEDIUM (40-69), HIGH (70-100)
 THREAT_SEVERITY_LEVELS = {
-    "CRITICAL": {"min_confidence": 0.9, "priority": 1, "auto_response": True},
-    "HIGH": {"min_confidence": 0.75, "priority": 2, "auto_response": True},
-    "MEDIUM": {"min_confidence": 0.5, "priority": 3, "auto_response": False},
-    "LOW": {"min_confidence": 0.25, "priority": 4, "auto_response": False},
-    "INFO": {"min_confidence": 0.0, "priority": 5, "auto_response": False},
+    "HIGH": {"min_risk_score": 70, "priority": 1, "auto_response": True},
+    "MEDIUM": {"min_risk_score": 40, "priority": 2, "auto_response": True},
+    "LOW": {"min_risk_score": 0, "priority": 3, "auto_response": False},
 }
 
 THREAT_TYPES = [

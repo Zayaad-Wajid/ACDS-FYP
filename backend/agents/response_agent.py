@@ -3,6 +3,27 @@ Autonomous Response Agent for ACDS
 ===================================
 Handles automated threat response actions including quarantine,
 sender blocking, notifications, and remediation.
+
+Standard Output Contract:
+{
+    "agent": "response",
+    "status": "success" | "error",
+    "incident_id": str,
+    "email_id": str,
+    "severity": "LOW" | "MEDIUM" | "HIGH",
+    "actions_executed": [str],
+    "actions_pending": [str],
+    "response_details": {
+        "quarantined": bool,
+        "sender_blocked": bool,
+        "admin_notified": bool
+    },
+    "recommendation": str,
+    "timestamp": ISO8601 str,
+    "error": str | null
+}
+
+Version: 2.0.0
 """
 
 import os
@@ -12,6 +33,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Dict, Any, Optional, List
 from enum import Enum
+from dataclasses import dataclass, asdict, field
 
 try:
     from backend.config.settings import (
@@ -21,19 +43,27 @@ try:
     )
     from backend.core.logger import get_logger
 except ImportError:
-    AUTO_QUARANTINE_ENABLED = True
-    AUTO_BLOCK_SENDER_ENABLED = True
-    AUTO_NOTIFY_ADMIN_ENABLED = True
-    QUARANTINE_FOLDER = "data/quarantine"
-    BLOCKED_SENDERS_FILE = "data/blocked_senders.json"
-    THREAT_SEVERITY_LEVELS = {
-        "CRITICAL": {"min_confidence": 0.9, "priority": 1, "auto_response": True},
-        "HIGH": {"min_confidence": 0.75, "priority": 2, "auto_response": True},
-        "MEDIUM": {"min_confidence": 0.5, "priority": 3, "auto_response": False},
-    }
-    logging.basicConfig(level=logging.INFO)
-    def get_logger(name):
-        return logging.getLogger(name)
+    try:
+        from config.settings import (
+            AUTO_QUARANTINE_ENABLED, AUTO_BLOCK_SENDER_ENABLED,
+            AUTO_NOTIFY_ADMIN_ENABLED, QUARANTINE_FOLDER, BLOCKED_SENDERS_FILE,
+            THREAT_SEVERITY_LEVELS
+        )
+        from core.logger import get_logger
+    except ImportError:
+        AUTO_QUARANTINE_ENABLED = True
+        AUTO_BLOCK_SENDER_ENABLED = True
+        AUTO_NOTIFY_ADMIN_ENABLED = True
+        QUARANTINE_FOLDER = "data/quarantine"
+        BLOCKED_SENDERS_FILE = "data/blocked_senders.json"
+        THREAT_SEVERITY_LEVELS = {
+            "HIGH": {"min_confidence": 0.7, "priority": 1, "auto_response": True},
+            "MEDIUM": {"min_confidence": 0.4, "priority": 2, "auto_response": True},
+            "LOW": {"min_confidence": 0.0, "priority": 3, "auto_response": False},
+        }
+        logging.basicConfig(level=logging.INFO)
+        def get_logger(name):
+            return logging.getLogger(name)
 
 
 class ResponseAction(Enum):
@@ -455,4 +485,147 @@ def respond(alert: Dict) -> Dict[str, Any]:
     """Legacy respond function - wraps ResponseAgent."""
     agent = ResponseAgent()
     return agent.respond(alert)
+
+
+@dataclass
+class ResponseResult:
+    """Dataclass for response agent standard output."""
+    agent: str = "response"
+    status: str = "success"
+    incident_id: str = ""
+    email_id: str = ""
+    severity: str = "LOW"
+    actions_executed: List[str] = field(default_factory=list)
+    actions_pending: List[str] = field(default_factory=list)
+    response_details: Dict[str, bool] = field(default_factory=dict)
+    recommendation: str = ""
+    timestamp: str = ""
+    error: Optional[str] = None
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary."""
+        result = asdict(self)
+        if result['error'] is None:
+            del result['error']
+        return result
+
+
+# Add generate_response method to ResponseAgent for standard contract
+def _generate_response_standard(
+    self,
+    incident_id: str,
+    email_id: str,
+    severity: str,
+    risk_score: int,
+    detection_result: Optional[Dict[str, Any]] = None,
+    explain_result: Optional[Dict[str, Any]] = None
+) -> Dict[str, Any]:
+    """
+    Generate standardized response output.
+    
+    Args:
+        incident_id: Incident identifier
+        email_id: Email identifier
+        severity: Severity level (LOW/MEDIUM/HIGH)
+        risk_score: Risk score (0-100)
+        detection_result: Results from detection agent
+        explain_result: Results from explainability agent
+        
+    Returns:
+        Standard response agent output
+    """
+    result = ResponseResult(
+        incident_id=incident_id,
+        email_id=email_id,
+        severity=severity,
+        timestamp=datetime.now(timezone.utc).isoformat(),
+        response_details={
+            'quarantined': False,
+            'sender_blocked': False,
+            'admin_notified': False
+        }
+    )
+    
+    try:
+        # Build threat data from detection result
+        threat_data = {
+            'id': incident_id,
+            'email_id': email_id,
+            'is_phishing': detection_result.get('is_phishing', False) if detection_result else False,
+            'confidence': detection_result.get('confidence', 0) if detection_result else 0,
+            'severity': severity,
+            'sender': None,  # Would be extracted from email headers
+            'file_path': None
+        }
+        
+        # Execute response
+        response_result = self.respond(threat_data)
+        
+        # Map to standard output
+        executed = []
+        pending = []
+        
+        for action in response_result.get('actions_taken', []):
+            if action.get('executed', False):
+                executed.append(action.get('action', ''))
+                
+                # Track response details
+                if action.get('action') == 'quarantine':
+                    result.response_details['quarantined'] = True
+                elif action.get('action') == 'block_sender':
+                    result.response_details['sender_blocked'] = True
+                elif action.get('action') == 'notify_admin':
+                    result.response_details['admin_notified'] = True
+        
+        for action in response_result.get('actions_pending', []):
+            pending.append(action.get('action', ''))
+        
+        result.actions_executed = executed
+        result.actions_pending = pending
+        
+        # Generate recommendation
+        result.recommendation = self._generate_recommendation(severity, executed, pending)
+        
+    except Exception as e:
+        result.status = "error"
+        result.error = str(e)
+        self.logger.error(f"Response error for {incident_id}: {e}")
+    
+    return result.to_dict()
+
+
+def _generate_recommendation(self, severity: str, executed: List[str], pending: List[str]) -> str:
+    """Generate response recommendation."""
+    if severity == 'HIGH':
+        if 'quarantine' in executed:
+            return "Email quarantined. Review sender patterns and consider organization-wide block."
+        return "HIGH severity threat. Immediate quarantine and sender block recommended."
+    elif severity == 'MEDIUM':
+        return "Moderate threat detected. Review email content and monitor sender activity."
+    else:
+        return "Low risk. Standard monitoring in place."
+
+
+# Attach method to ResponseAgent class
+ResponseAgent.generate_response = _generate_response_standard
+ResponseAgent._generate_recommendation = _generate_recommendation
+
+
+# Factory function
+def create_response_agent() -> ResponseAgent:
+    """Create a ResponseAgent instance."""
+    return ResponseAgent()
+
+
+# Module-level singleton
+_agent_instance: Optional[ResponseAgent] = None
+
+
+def get_response_agent() -> ResponseAgent:
+    """Get or create response agent singleton."""
+    global _agent_instance
+    if _agent_instance is None:
+        _agent_instance = ResponseAgent()
+    return _agent_instance
+
 

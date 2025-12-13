@@ -2,6 +2,8 @@
 Phishing Detection Service
 ===========================
 Wraps the ML model for phishing email detection with full API support.
+
+Version: 2.0.0 - TF-IDF + Logistic Regression Architecture
 """
 
 import os
@@ -13,24 +15,40 @@ from datetime import datetime, timezone
 
 # Try multiple import paths to support different running contexts
 try:
-    from ml.preprocess import preprocess_text, extract_email_features, EmailPreprocessor
+    from ml.preprocess import (
+        preprocess_text, extract_email_features, EmailPreprocessor,
+        extract_urls, extract_domains, extract_email_addresses,
+        calculate_risk_score, get_severity
+    )
     from config.settings import MODEL_PATH, MODEL_INFO_PATH, PHISHING_CONFIDENCE_THRESHOLD
     from core.logger import get_logger
 except ImportError:
     try:
-        from backend.ml.preprocess import preprocess_text, extract_email_features, EmailPreprocessor
+        from backend.ml.preprocess import (
+            preprocess_text, extract_email_features, EmailPreprocessor,
+            extract_urls, extract_domains, extract_email_addresses,
+            calculate_risk_score, get_severity
+        )
         from backend.config.settings import MODEL_PATH, MODEL_INFO_PATH, PHISHING_CONFIDENCE_THRESHOLD
         from backend.core.logger import get_logger
     except ImportError:
         try:
-            from .preprocess import preprocess_text, extract_email_features, EmailPreprocessor
+            from .preprocess import (
+                preprocess_text, extract_email_features, EmailPreprocessor,
+                extract_urls, extract_domains, extract_email_addresses,
+                calculate_risk_score, get_severity
+            )
             from ..config.settings import MODEL_PATH, MODEL_INFO_PATH, PHISHING_CONFIDENCE_THRESHOLD
             from ..core.logger import get_logger
         except ImportError:
             # Development fallbacks
-            from preprocess import preprocess_text, extract_email_features, EmailPreprocessor
-            MODEL_PATH = "models/phishing_model.pkl"
-            MODEL_INFO_PATH = "models/model_info.json"
+            from preprocess import (
+                preprocess_text, extract_email_features, EmailPreprocessor,
+                extract_urls, extract_domains, extract_email_addresses,
+                calculate_risk_score, get_severity
+            )
+            MODEL_PATH = "ml/models/phishing_model.pkl"
+            MODEL_INFO_PATH = "ml/models/model_info.json"
             PHISHING_CONFIDENCE_THRESHOLD = 0.5
             logging.basicConfig(level=logging.INFO)
             def get_logger(name):
@@ -111,9 +129,10 @@ class PhishingDetectionService:
             'timestamp': datetime.now(timezone.utc).isoformat(),
             'is_phishing': False,
             'confidence': 0.0,
-            'severity': 'INFO',
-            'risk_score': 0.0,
+            'severity': 'LOW',
+            'risk_score': 0,
             'features': {},
+            'iocs': {},
             'indicators': [],
             'recommendation': '',
             'model_used': self.is_model_loaded(),
@@ -124,6 +143,14 @@ class PhishingDetectionService:
             preprocessed = preprocess_text(email_content)
             features = extract_email_features(email_content)
             result['features'] = features
+            
+            # Extract IOCs
+            result['iocs'] = {
+                'urls': extract_urls(email_content),
+                'domains': extract_domains(email_content),
+                'emails': extract_email_addresses(email_content),
+                'keywords': features.get('suspicious_keywords', [])
+            }
             
             if self.model:
                 # Use ML model for prediction
@@ -142,10 +169,13 @@ class PhishingDetectionService:
             
             result['is_phishing'] = is_phishing
             result['confidence'] = round(confidence, 4)
-            result['severity'] = self._calculate_severity(confidence)
-            result['risk_score'] = self._calculate_risk_score(confidence, features)
+            
+            # Use unified risk score and severity from preprocess module
+            result['risk_score'] = calculate_risk_score(confidence, features)
+            result['severity'] = get_severity(result['risk_score'])
+            
             result['indicators'] = self._get_indicators(features, confidence)
-            result['recommendation'] = self._get_recommendation(is_phishing, confidence)
+            result['recommendation'] = self._get_recommendation(is_phishing, result['severity'])
             
             # Update statistics
             if is_phishing:
@@ -212,30 +242,6 @@ class PhishingDetectionService:
         
         return confidence, is_phishing
     
-    def _calculate_severity(self, confidence: float) -> str:
-        """Determine severity level based on confidence."""
-        if confidence >= 0.9:
-            return 'CRITICAL'
-        elif confidence >= 0.75:
-            return 'HIGH'
-        elif confidence >= 0.5:
-            return 'MEDIUM'
-        elif confidence >= 0.25:
-            return 'LOW'
-        return 'INFO'
-    
-    def _calculate_risk_score(self, confidence: float, features: dict) -> float:
-        """Calculate overall risk score (0-100)."""
-        base_score = confidence * 70  # ML confidence contributes 70%
-        
-        # Feature-based additions (up to 30%)
-        feature_score = 0
-        feature_score += min(features.get('url_count', 0) * 2, 10)
-        feature_score += features.get('urgency_score', 0) * 3
-        feature_score += len(features.get('suspicious_keywords', [])) * 2
-        
-        return min(round(base_score + feature_score, 1), 100)
-    
     def _get_indicators(self, features: dict, confidence: float) -> List[str]:
         """Generate list of threat indicators found."""
         indicators = []
@@ -243,35 +249,37 @@ class PhishingDetectionService:
         if features.get('url_count', 0) > 0:
             indicators.append(f"Contains {features['url_count']} URL(s)")
         
-        if features.get('urgency_score', 0) > 0:
-            indicators.append(f"Urgency language detected (score: {features['urgency_score']})")
+        if features.get('urgency_count', 0) > 0:
+            indicators.append(f"Urgency language detected (count: {features['urgency_count']})")
+        
+        if features.get('threat_count', 0) > 0:
+            indicators.append(f"Threat keywords found (count: {features['threat_count']})")
+        
+        if features.get('action_count', 0) > 0:
+            indicators.append(f"Action keywords detected (count: {features['action_count']})")
         
         if features.get('suspicious_keywords'):
-            indicators.append(f"Suspicious keywords: {', '.join(features['suspicious_keywords'][:5])}")
+            kw_list = features['suspicious_keywords'][:5]
+            indicators.append(f"Suspicious keywords: {', '.join(kw_list)}")
         
         if features.get('has_html'):
             indicators.append("Contains HTML content")
-        
-        if features.get('has_attachments'):
-            indicators.append("References attachments")
         
         if confidence >= 0.75:
             indicators.append("High-confidence phishing pattern detected")
         
         return indicators
     
-    def _get_recommendation(self, is_phishing: bool, confidence: float) -> str:
-        """Generate action recommendation."""
+    def _get_recommendation(self, is_phishing: bool, severity: str) -> str:
+        """Generate action recommendation based on severity."""
         if is_phishing:
-            if confidence >= 0.9:
+            if severity == 'HIGH':
                 return "IMMEDIATE ACTION: Quarantine email, block sender, and alert security team."
-            elif confidence >= 0.75:
+            elif severity == 'MEDIUM':
                 return "HIGH PRIORITY: Quarantine email and review sender reputation."
             else:
                 return "REVIEW REQUIRED: Mark as suspicious and monitor for similar patterns."
         else:
-            if confidence >= 0.3:
-                return "LOW RISK: Some indicators present. Standard monitoring recommended."
             return "SAFE: No significant phishing indicators detected."
     
     def get_stats(self) -> Dict[str, Any]:

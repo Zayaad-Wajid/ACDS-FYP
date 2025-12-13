@@ -45,8 +45,10 @@ except ImportError as e:
 # Import services for health check
 try:
     from ml.phishing_service import get_phishing_service
+    from agents.orchestrator_agent import get_orchestrator_agent
 except ImportError:
     get_phishing_service = None
+    get_orchestrator_agent = None
 
 
 # Application startup/shutdown
@@ -66,6 +68,15 @@ async def lifespan(app: FastAPI):
             print("✅ ML Model loaded successfully")
         else:
             print("⚠️ ML Model not loaded - running in fallback mode")
+    
+    # Initialize Orchestrator
+    if get_orchestrator_agent:
+        orchestrator = get_orchestrator_agent()
+        stats = orchestrator.get_stats()
+        agents_status = stats.get('agents_available', {})
+        print(f"✅ Orchestrator initialized - Agents: {agents_status}")
+    else:
+        print("⚠️ Orchestrator not available")
     
     print("=" * 50)
     
@@ -162,7 +173,12 @@ async def health_check():
         "services": {
             "api": True,
             "ml_model": False,
-            "database": False,
+            "orchestrator": False,
+            "agents": {
+                "detection": False,
+                "explainability": False,
+                "response": False
+            }
         }
     }
     
@@ -174,8 +190,18 @@ async def health_check():
         except:
             pass
     
+    # Check Orchestrator and agents
+    if get_orchestrator_agent:
+        try:
+            orchestrator = get_orchestrator_agent()
+            stats = orchestrator.get_stats()
+            health_status["services"]["orchestrator"] = True
+            health_status["services"]["agents"] = stats.get('agents_available', {})
+        except:
+            pass
+    
     # Overall status
-    if not health_status["services"]["ml_model"]:
+    if not health_status["services"]["orchestrator"]:
         health_status["status"] = "degraded"
     
     return health_status

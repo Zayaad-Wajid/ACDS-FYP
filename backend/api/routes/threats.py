@@ -2,40 +2,53 @@
 Threat Detection API Routes
 ============================
 API endpoints for email scanning and threat detection.
+
+Version: 2.0.0 - Orchestrator-based pipeline
+Pipeline: Detection → Explainability → Orchestrator → Response
 """
 
 import time
 from typing import Optional, List
 from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Depends, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
-# Define local models
+# Define request/response models
 class EmailScanRequest(BaseModel):
-    content: str
-    sender: Optional[str] = None
-    subject: Optional[str] = None
-    recipient: Optional[str] = None
+    content: str = Field(..., description="Email content to scan")
+    sender: Optional[str] = Field(None, description="Sender email address")
+    subject: Optional[str] = Field(None, description="Email subject line")
+    recipient: Optional[str] = Field(None, description="Recipient email address")
+    email_id: Optional[str] = Field(None, description="Optional email identifier")
 
 class EmailScanBatchRequest(BaseModel):
     emails: List[EmailScanRequest]
 
-# Import services
+class QuickScanRequest(BaseModel):
+    content: str = Field(..., min_length=1, description="Text content to analyze")
+
+# Import services - Orchestrator-based architecture
 try:
     from ml.phishing_service import get_phishing_service
-    from agents.response_agent import ResponseAgent
+    from agents.orchestrator_agent import get_orchestrator_agent
+    from agents.detection_agent import get_detection_agent
+    from agents.explainability_agent import get_explainability_agent
+    from agents.response_agent import get_response_agent
 except ImportError:
     try:
         from backend.ml.phishing_service import get_phishing_service
-        from backend.agents.response_agent import ResponseAgent
+        from backend.agents.orchestrator_agent import get_orchestrator_agent
+        from backend.agents.detection_agent import get_detection_agent
+        from backend.agents.explainability_agent import get_explainability_agent
+        from backend.agents.response_agent import get_response_agent
     except ImportError:
         get_phishing_service = None
-        ResponseAgent = None
+        get_orchestrator_agent = None
+        get_detection_agent = None
+        get_explainability_agent = None
+        get_response_agent = None
 
 router = APIRouter(prefix="/threats", tags=["Threat Detection"])
-
-# Initialize services
-response_agent = ResponseAgent() if ResponseAgent else None
 
 # In-memory threat storage (would be database in production)
 import random
@@ -124,29 +137,40 @@ from datetime import timedelta
 @router.post("/scan")
 async def scan_email(request: EmailScanRequest):
     """
-    Scan an email for phishing indicators.
+    Scan an email through the full orchestrator pipeline.
     
-    Analyzes the email content using ML model and returns
-    detection results with confidence scores and recommendations.
+    Pipeline: Detection → Explainability → Response
+    
+    Returns comprehensive analysis with:
+    - Detection results (is_phishing, confidence, risk_score, severity)
+    - Explainability (IOCs, keywords, evidence, explanation)
+    - Response actions (if phishing detected)
+    - Incident tracking (incident_id for follow-up)
     """
     start_time = time.time()
     
+    if not get_orchestrator_agent:
+        raise HTTPException(status_code=503, detail="Orchestrator service not available")
+    
     try:
-        service = get_phishing_service()
-        result = service.predict(request.content)
+        # Get orchestrator and process email
+        orchestrator = get_orchestrator_agent()
+        result = orchestrator.process_email(request.content, request.email_id)
         
-        # Add sender/subject context if provided
+        # Add request context to result
         if request.sender:
             result['sender'] = request.sender
         if request.subject:
             result['subject'] = request.subject
+        if request.recipient:
+            result['recipient'] = request.recipient
         
         processing_time = (time.time() - start_time) * 1000
+        result['processing_time_ms'] = round(processing_time, 2)
         
         return {
             "success": True,
-            "result": result,
-            "processing_time_ms": round(processing_time, 2)
+            "result": result
         }
     
     except Exception as e:
@@ -156,33 +180,48 @@ async def scan_email(request: EmailScanRequest):
 @router.post("/scan/batch")
 async def scan_emails_batch(request: EmailScanBatchRequest):
     """
-    Scan multiple emails in batch.
+    Scan multiple emails in batch through the orchestrator pipeline.
     
-    Processes multiple emails efficiently and returns
-    results for each email.
+    Each email goes through: Detection → Explainability → Response
+    Returns aggregated results with summary statistics.
     """
     start_time = time.time()
     
+    if not get_orchestrator_agent:
+        raise HTTPException(status_code=503, detail="Orchestrator service not available")
+    
     try:
-        service = get_phishing_service()
+        orchestrator = get_orchestrator_agent()
         results = []
         
         for email in request.emails:
-            result = service.predict(email.content)
+            result = orchestrator.process_email(email.content, email.email_id)
             if email.sender:
                 result['sender'] = email.sender
+            if email.subject:
+                result['subject'] = email.subject
             results.append(result)
         
         processing_time = (time.time() - start_time) * 1000
         
         # Summary statistics
-        phishing_count = sum(1 for r in results if r.get('is_phishing'))
+        phishing_count = sum(
+            1 for r in results 
+            if r.get('pipeline_results', {}).get('detection', {}).get('is_phishing')
+        )
+        high_severity = sum(1 for r in results if r.get('severity') == 'HIGH')
+        medium_severity = sum(1 for r in results if r.get('severity') == 'MEDIUM')
         
         return {
             "success": True,
-            "total_scanned": len(results),
-            "phishing_detected": phishing_count,
-            "safe_detected": len(results) - phishing_count,
+            "summary": {
+                "total_scanned": len(results),
+                "phishing_detected": phishing_count,
+                "safe_detected": len(results) - phishing_count,
+                "high_severity": high_severity,
+                "medium_severity": medium_severity,
+                "low_severity": len(results) - high_severity - medium_severity
+            },
             "results": results,
             "processing_time_ms": round(processing_time, 2)
         }
@@ -194,36 +233,73 @@ async def scan_emails_batch(request: EmailScanBatchRequest):
 @router.post("/scan/respond")
 async def scan_and_respond(request: EmailScanRequest):
     """
-    Scan an email and automatically respond to threats.
+    [DEPRECATED] Use /scan endpoint instead.
     
-    Combines detection with automated response actions
-    based on threat severity.
+    The /scan endpoint now includes automatic response actions
+    through the orchestrator pipeline.
     """
-    start_time = time.time()
+    # Redirect to main scan endpoint - orchestrator handles response
+    return await scan_email(request)
+
+
+@router.post("/scan/quick")
+async def quick_scan(request: QuickScanRequest):
+    """
+    Quick detection-only scan without full pipeline.
+    
+    Uses only the Detection Agent for fast classification.
+    Good for real-time typing feedback or bulk pre-screening.
+    """
+    if not get_detection_agent:
+        raise HTTPException(status_code=503, detail="Detection agent not available")
     
     try:
-        # Run detection
-        service = get_phishing_service()
-        scan_result = service.predict(request.content)
-        
-        # Add context
-        scan_result['sender'] = request.sender
-        scan_result['file_path'] = None  # No file in API request
-        
-        # Execute response if threat detected
-        response_result = None
-        if scan_result.get('is_phishing'):
-            response_result = response_agent.respond(scan_result)
-        
-        processing_time = (time.time() - start_time) * 1000
+        detection_agent = get_detection_agent()
+        result = detection_agent.analyze(request.content)
         
         return {
             "success": True,
-            "scan_result": scan_result,
-            "response_result": response_result,
-            "processing_time_ms": round(processing_time, 2)
+            "result": {
+                "is_phishing": result.get('is_phishing'),
+                "confidence": result.get('confidence'),
+                "risk_score": result.get('risk_score'),
+                "severity": result.get('severity'),
+                "model_used": result.get('model_used')
+            }
         }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/scan/explain")
+async def scan_with_explanation(request: EmailScanRequest):
+    """
+    Scan with detailed explainability output.
     
+    Returns Detection + Explainability results without response actions.
+    Ideal for analyst review and investigation.
+    """
+    if not get_detection_agent or not get_explainability_agent:
+        raise HTTPException(status_code=503, detail="Agent services not available")
+    
+    try:
+        # Run detection
+        detection_agent = get_detection_agent()
+        detection_result = detection_agent.analyze(request.content, request.email_id)
+        
+        # Run explainability
+        explainability_agent = get_explainability_agent()
+        explain_result = explainability_agent.analyze(
+            request.content, 
+            detection_result['email_id'],
+            detection_result
+        )
+        
+        return {
+            "success": True,
+            "detection": detection_result,
+            "explainability": explain_result
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -231,21 +307,50 @@ async def scan_and_respond(request: EmailScanRequest):
 @router.get("/stats")
 async def get_detection_stats():
     """
-    Get detection service statistics.
+    Get comprehensive pipeline statistics.
     
-    Returns metrics about scans performed, detection rates,
-    and model performance.
+    Returns metrics from all agents in the pipeline:
+    - Orchestrator stats (total incidents, processing times)
+    - Detection stats (scans, phishing rate)
+    - Response stats (actions taken)
     """
+    stats = {
+        "orchestrator": {},
+        "detection": {},
+        "explainability": {},
+        "response": {},
+        "ml_service": {}
+    }
+    
     try:
-        service = get_phishing_service()
-        stats = service.get_stats()
+        # Get orchestrator stats
+        if get_orchestrator_agent:
+            orchestrator = get_orchestrator_agent()
+            stats["orchestrator"] = orchestrator.get_stats()
         
-        response_stats = response_agent.get_stats()
+        # Get detection stats
+        if get_detection_agent:
+            detection = get_detection_agent()
+            stats["detection"] = detection.get_stats()
+        
+        # Get explainability stats
+        if get_explainability_agent:
+            explainability = get_explainability_agent()
+            stats["explainability"] = explainability.get_stats()
+        
+        # Get response stats
+        if get_response_agent:
+            response = get_response_agent()
+            stats["response"] = response.get_stats()
+        
+        # Get ML service stats
+        if get_phishing_service:
+            service = get_phishing_service()
+            stats["ml_service"] = service.get_stats()
         
         return {
             "success": True,
-            "detection_stats": stats,
-            "response_stats": response_stats
+            "stats": stats
         }
     
     except Exception as e:
@@ -274,17 +379,25 @@ async def get_model_info():
 @router.get("/blocked-senders")
 async def get_blocked_senders():
     """Get list of blocked email senders."""
+    if not get_response_agent:
+        raise HTTPException(status_code=503, detail="Response agent not available")
+    
+    response = get_response_agent()
     return {
         "success": True,
-        "blocked_senders": response_agent.get_blocked_senders(),
-        "count": len(response_agent.get_blocked_senders())
+        "blocked_senders": response.get_blocked_senders(),
+        "count": len(response.get_blocked_senders())
     }
 
 
 @router.post("/blocked-senders")
 async def block_sender(email: str, reason: Optional[str] = None):
     """Add a sender to the block list."""
-    result = response_agent._block_sender(email, {
+    if not get_response_agent:
+        raise HTTPException(status_code=503, detail="Response agent not available")
+    
+    response = get_response_agent()
+    result = response._block_sender(email, {
         'action': 'block_sender',
         'status': 'pending'
     })
@@ -298,7 +411,11 @@ async def block_sender(email: str, reason: Optional[str] = None):
 @router.delete("/blocked-senders/{email}")
 async def unblock_sender(email: str):
     """Remove a sender from the block list."""
-    success = response_agent.unblock_sender(email)
+    if not get_response_agent:
+        raise HTTPException(status_code=503, detail="Response agent not available")
+    
+    response = get_response_agent()
+    success = response.unblock_sender(email)
     
     return {
         "success": success,
@@ -309,7 +426,11 @@ async def unblock_sender(email: str):
 @router.get("/quarantine")
 async def get_quarantined_files():
     """Get list of quarantined files."""
-    files = response_agent.get_quarantined_files()
+    if not get_response_agent:
+        raise HTTPException(status_code=503, detail="Response agent not available")
+    
+    response = get_response_agent()
+    files = response.get_quarantined_files()
     
     return {
         "success": True,
@@ -321,7 +442,11 @@ async def get_quarantined_files():
 @router.post("/quarantine/restore")
 async def restore_from_quarantine(filename: str, destination: str):
     """Restore a file from quarantine."""
-    success = response_agent.restore_from_quarantine(filename, destination)
+    if not get_response_agent:
+        raise HTTPException(status_code=503, detail="Response agent not available")
+    
+    response = get_response_agent()
+    success = response.restore_from_quarantine(filename, destination)
     
     if not success:
         raise HTTPException(status_code=404, detail="File not found in quarantine")
@@ -335,10 +460,90 @@ async def restore_from_quarantine(filename: str, destination: str):
 @router.get("/response-history")
 async def get_response_history(limit: int = Query(50, le=200)):
     """Get history of automated responses."""
-    history = response_agent.get_response_history(limit)
+    if not get_response_agent:
+        raise HTTPException(status_code=503, detail="Response agent not available")
+    
+    response = get_response_agent()
+    history = response.get_response_history(limit)
     
     return {
         "success": True,
         "history": history,
         "count": len(history)
+    }
+
+
+# =============================================================================
+# INCIDENT MANAGEMENT ENDPOINTS
+# =============================================================================
+
+@router.get("/incidents")
+async def get_incidents(limit: int = Query(20, le=100)):
+    """
+    Get recent incidents from the orchestrator.
+    
+    Returns incidents tracked during email scanning operations.
+    """
+    if not get_orchestrator_agent:
+        raise HTTPException(status_code=503, detail="Orchestrator not available")
+    
+    orchestrator = get_orchestrator_agent()
+    incidents = orchestrator.get_recent_incidents(limit)
+    
+    return {
+        "success": True,
+        "incidents": incidents,
+        "count": len(incidents)
+    }
+
+
+@router.get("/incidents/{incident_id}")
+async def get_incident(incident_id: str):
+    """
+    Get details of a specific incident.
+    
+    Returns full incident record including detection results and actions.
+    """
+    if not get_orchestrator_agent:
+        raise HTTPException(status_code=503, detail="Orchestrator not available")
+    
+    orchestrator = get_orchestrator_agent()
+    incident = orchestrator.get_incident(incident_id)
+    
+    if not incident:
+        raise HTTPException(status_code=404, detail=f"Incident {incident_id} not found")
+    
+    return {
+        "success": True,
+        "incident": incident
+    }
+
+
+@router.patch("/incidents/{incident_id}/state")
+async def update_incident_state(incident_id: str, new_state: str):
+    """
+    Update an incident's lifecycle state.
+    
+    Valid states: detected, analyzing, responded, resolved, reported
+    """
+    if not get_orchestrator_agent:
+        raise HTTPException(status_code=503, detail="Orchestrator not available")
+    
+    valid_states = ["detected", "analyzing", "responded", "resolved", "reported"]
+    if new_state not in valid_states:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Invalid state. Must be one of: {valid_states}"
+        )
+    
+    orchestrator = get_orchestrator_agent()
+    success = orchestrator.update_incident_state(incident_id, new_state)
+    
+    if not success:
+        raise HTTPException(status_code=404, detail=f"Incident {incident_id} not found")
+    
+    return {
+        "success": True,
+        "incident_id": incident_id,
+        "new_state": new_state
     }

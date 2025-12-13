@@ -1,50 +1,63 @@
 """
 Text Preprocessing Module for Phishing Detection
 =================================================
-Provides text cleaning and preprocessing functions that match
-the preprocessing used during model training.
+Unified preprocessing pipeline - NO NLTK required.
+MUST match the preprocessing used during model training.
+
+Version: 2.0.0
 """
 
 import re
-import string
-from typing import Optional
 import logging
+from typing import Dict, List, Optional, Any
+from dataclasses import dataclass, field
 
-# Try to import NLTK components
-try:
-    import nltk
-    from nltk.corpus import stopwords
-    from nltk.stem import WordNetLemmatizer
-    
-    # Download required NLTK data (if not already present)
-    nltk.download('stopwords', quiet=True)
-    nltk.download('wordnet', quiet=True)
-    nltk.download('punkt', quiet=True)
-    
-    NLTK_AVAILABLE = True
-    STOP_WORDS = set(stopwords.words('english'))
-    LEMMATIZER = WordNetLemmatizer()
-except ImportError:
-    NLTK_AVAILABLE = False
-    STOP_WORDS = set()
-    LEMMATIZER = None
-    logging.warning("NLTK not available. Using basic preprocessing.")
+logger = logging.getLogger(__name__)
 
-# Common phishing indicators
-PHISHING_KEYWORDS = [
-    'urgent', 'verify', 'account', 'suspended', 'password', 'click here',
-    'immediately', 'expire', 'confirm', 'update your', 'security alert',
-    'unusual activity', 'unauthorized', 'limited time', 'act now',
-    'winner', 'prize', 'congratulations', 'selected', 'lucky',
-    'bank', 'paypal', 'apple', 'microsoft', 'amazon', 'netflix',
-    'invoice', 'payment', 'refund', 'transfer', 'wire',
+# ============================================================
+# CONSTANTS - Phishing Indicators
+# ============================================================
+
+URGENCY_KEYWORDS = [
+    'urgent', 'immediately', 'asap', 'now', 'expire', 'expires',
+    'limited', 'act now', 'hurry', 'quick', 'fast', 'deadline',
+    'within 24 hours', 'within 48 hours', 'today only'
+]
+
+THREAT_KEYWORDS = [
+    'suspended', 'terminated', 'blocked', 'locked', 'disabled',
+    'unauthorized', 'unusual activity', 'security alert', 'compromised',
+    'violation', 'illegal', 'fraud', 'breach'
+]
+
+ACTION_KEYWORDS = [
+    'verify', 'confirm', 'update', 'click here', 'click below',
+    'login', 'sign in', 'validate', 'submit', 'enter your',
+    'provide your', 'send your'
+]
+
+REWARD_KEYWORDS = [
+    'winner', 'won', 'prize', 'congratulations', 'selected',
+    'lucky', 'reward', 'gift', 'free', 'bonus', 'discount',
+    'refund', 'claim'
+]
+
+FINANCIAL_KEYWORDS = [
+    'bank', 'account', 'password', 'credit card', 'ssn',
+    'social security', 'wire transfer', 'payment', 'invoice',
+    'paypal', 'apple', 'microsoft', 'amazon', 'netflix', 'google'
 ]
 
 
+# ============================================================
+# PREPROCESSING FUNCTIONS - Must Match Training
+# ============================================================
+
 def preprocess_text(text: str) -> str:
     """
-    Comprehensive text cleaning for email content.
-    This function MUST match the preprocessing used during model training.
+    Unified text preprocessing for email content.
+    
+    ⚠️ CRITICAL: This function MUST match ml_training/phishingmodel.ipynb
     
     Args:
         text: Raw email text content
@@ -58,30 +71,20 @@ def preprocess_text(text: str) -> str:
     # Lowercase
     text = text.lower()
     
-    # Remove URLs (replace with token for context)
-    text = re.sub(r'http\S+|www\S+|https\S+', ' urltoken ', text)
+    # Replace URLs with token (preserve as indicator)
+    text = re.sub(r'http[s]?://\S+|www\.\S+', ' URL_TOKEN ', text)
     
-    # Remove email addresses (replace with token)
-    text = re.sub(r'\S+@\S+', ' emailtoken ', text)
+    # Replace email addresses with token
+    text = re.sub(r'\S+@\S+\.\S+', ' EMAIL_TOKEN ', text)
     
     # Remove HTML tags
-    text = re.sub(r'<[^>]+>', '', text)
+    text = re.sub(r'<[^>]+>', ' ', text)
     
-    # Remove special characters but keep spaces
-    text = re.sub(r'[^a-zA-Z\s]', ' ', text)
+    # Keep alphanumeric and spaces only
+    text = re.sub(r'[^a-zA-Z0-9\s]', ' ', text)
     
-    # Remove extra whitespace
+    # Normalize whitespace
     text = re.sub(r'\s+', ' ', text).strip()
-    
-    # Tokenize and lemmatize (if NLTK available)
-    if NLTK_AVAILABLE and LEMMATIZER:
-        words = text.split()
-        words = [
-            LEMMATIZER.lemmatize(w) 
-            for w in words 
-            if w not in STOP_WORDS and len(w) > 2
-        ]
-        text = ' '.join(words)
     
     return text
 
@@ -101,13 +104,66 @@ def preprocess_file(file_path: str) -> str:
             content = f.read()
         return preprocess_text(content)
     except Exception as e:
-        logging.error(f"Error reading file {file_path}: {e}")
+        logger.error(f"Error reading file {file_path}: {e}")
         return ""
 
 
-def extract_email_features(email_content: str) -> dict:
+# ============================================================
+# IOC EXTRACTION FUNCTIONS
+# ============================================================
+
+def extract_urls(text: str) -> List[str]:
+    """Extract all URLs from text."""
+    if not text:
+        return []
+    url_pattern = r'https?://[^\s<>"\'{}|\\^`\[\]]+'
+    return list(set(re.findall(url_pattern, text, re.IGNORECASE)))
+
+
+def extract_domains(text: str) -> List[str]:
+    """Extract unique domains from URLs and email addresses."""
+    domains = set()
+    
+    # From URLs
+    urls = extract_urls(text)
+    for url in urls:
+        match = re.search(r'https?://([^/\s]+)', url)
+        if match:
+            domains.add(match.group(1).lower())
+    
+    # From email addresses
+    emails = extract_email_addresses(text)
+    for email in emails:
+        if '@' in email:
+            domain = email.split('@')[1].lower()
+            domains.add(domain)
+    
+    return list(domains)
+
+
+def extract_email_addresses(text: str) -> List[str]:
+    """Extract all email addresses from text."""
+    if not text:
+        return []
+    email_pattern = r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
+    return list(set(re.findall(email_pattern, text)))
+
+
+def extract_keywords(text: str, keyword_list: List[str]) -> List[str]:
+    """Extract matching keywords from text."""
+    if not text:
+        return []
+    text_lower = text.lower()
+    return [kw for kw in keyword_list if kw in text_lower]
+
+
+# ============================================================
+# FEATURE EXTRACTION
+# ============================================================
+
+def extract_email_features(email_content: str) -> Dict[str, Any]:
     """
-    Extract additional features from email content for enhanced detection.
+    Extract features from email content for enhanced detection.
     
     Args:
         email_content: Raw email content
@@ -115,112 +171,122 @@ def extract_email_features(email_content: str) -> dict:
     Returns:
         Dictionary of extracted features
     """
-    features = {
-        'url_count': 0,
-        'email_count': 0,
-        'has_html': False,
-        'urgency_score': 0,
-        'suspicious_keywords': [],
-        'has_attachments': False,
-        'link_text_mismatch': False,
-    }
-    
     if not email_content:
-        return features
+        return {
+            'url_count': 0,
+            'email_count': 0,
+            'domain_count': 0,
+            'has_html': False,
+            'urgency_count': 0,
+            'threat_count': 0,
+            'action_count': 0,
+            'reward_count': 0,
+            'financial_count': 0,
+            'suspicious_keywords': [],
+            'text_length': 0
+        }
     
     content_lower = email_content.lower()
     
-    # Count URLs
-    urls = re.findall(r'http\S+|www\S+|https\S+', email_content)
-    features['url_count'] = len(urls)
+    # Extract IOCs
+    urls = extract_urls(email_content)
+    emails = extract_email_addresses(email_content)
+    domains = extract_domains(email_content)
     
-    # Count email addresses
-    emails = re.findall(r'\S+@\S+', email_content)
-    features['email_count'] = len(emails)
+    # Extract keyword matches
+    urgency = extract_keywords(content_lower, URGENCY_KEYWORDS)
+    threats = extract_keywords(content_lower, THREAT_KEYWORDS)
+    actions = extract_keywords(content_lower, ACTION_KEYWORDS)
+    rewards = extract_keywords(content_lower, REWARD_KEYWORDS)
+    financial = extract_keywords(content_lower, FINANCIAL_KEYWORDS)
     
-    # Check for HTML content
-    features['has_html'] = bool(re.search(r'<[^>]+>', email_content))
+    # All suspicious keywords
+    all_suspicious = list(set(urgency + threats + actions + rewards + financial))
     
-    # Calculate urgency score based on keywords
-    urgency_words = ['urgent', 'immediately', 'asap', 'now', 'expire', 'limited', 'act now']
-    features['urgency_score'] = sum(1 for word in urgency_words if word in content_lower)
-    
-    # Find suspicious keywords
-    features['suspicious_keywords'] = [
-        kw for kw in PHISHING_KEYWORDS 
-        if kw in content_lower
-    ]
-    
-    # Check for attachment indicators
-    attachment_patterns = ['.exe', '.zip', '.pdf', 'attachment', 'attached', 'enclosed']
-    features['has_attachments'] = any(p in content_lower for p in attachment_patterns)
-    
-    return features
+    return {
+        'url_count': len(urls),
+        'email_count': len(emails),
+        'domain_count': len(domains),
+        'has_html': bool(re.search(r'<[^>]+>', email_content)),
+        'urgency_count': len(urgency),
+        'threat_count': len(threats),
+        'action_count': len(actions),
+        'reward_count': len(rewards),
+        'financial_count': len(financial),
+        'suspicious_keywords': all_suspicious,
+        'text_length': len(email_content)
+    }
 
 
-def extract_urls(text: str) -> list:
+# ============================================================
+# RISK SCORING
+# ============================================================
+
+def calculate_risk_score(confidence: float, features: Dict[str, Any]) -> int:
     """
-    Extract all URLs from text.
+    Calculate risk score (0-100) based on ML confidence and features.
+    
+    Formula:
+        risk_score = (confidence × 40) + (ioc_score × 20) + (keyword_score × 40)
     
     Args:
-        text: Text content to search
+        confidence: ML model confidence (0.0 to 1.0)
+        features: Extracted email features
         
     Returns:
-        List of extracted URLs
+        Risk score as integer (0-100)
     """
-    url_pattern = r'https?://[^\s<>"{}|\\^`\[\]]+'
-    return re.findall(url_pattern, text)
+    # Base score from ML confidence (40% weight)
+    confidence_score = confidence * 40
+    
+    # IOC score (20% weight)
+    url_score = min(features.get('url_count', 0) * 3, 10)
+    domain_score = min(features.get('domain_count', 0) * 2, 5)
+    html_score = 5 if features.get('has_html', False) else 0
+    ioc_score = (url_score + domain_score + html_score)
+    
+    # Keyword score (40% weight)
+    urgency_score = min(features.get('urgency_count', 0) * 5, 15)
+    threat_score = min(features.get('threat_count', 0) * 5, 15)
+    action_score = min(features.get('action_count', 0) * 3, 10)
+    keyword_score = urgency_score + threat_score + action_score
+    
+    total_score = confidence_score + ioc_score + keyword_score
+    
+    return min(int(total_score), 100)
 
 
-def extract_email_addresses(text: str) -> list:
+def get_severity(risk_score: int) -> str:
     """
-    Extract all email addresses from text.
+    Map risk score to severity level.
     
     Args:
-        text: Text content to search
+        risk_score: Risk score (0-100)
         
     Returns:
-        List of extracted email addresses
+        Severity: "LOW", "MEDIUM", or "HIGH"
     """
-    email_pattern = r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
-    return re.findall(email_pattern, text)
+    if risk_score >= 70:
+        return "HIGH"
+    elif risk_score >= 40:
+        return "MEDIUM"
+    else:
+        return "LOW"
 
 
-def calculate_suspicion_score(features: dict) -> float:
-    """
-    Calculate an overall suspicion score based on extracted features.
-    
-    Args:
-        features: Dictionary of extracted email features
-        
-    Returns:
-        Suspicion score between 0 and 1
-    """
-    score = 0.0
-    
-    # URL count contribution (many URLs = more suspicious)
-    if features.get('url_count', 0) > 3:
-        score += 0.15
-    elif features.get('url_count', 0) > 1:
-        score += 0.05
-    
-    # Urgency score contribution
-    urgency = features.get('urgency_score', 0)
-    score += min(urgency * 0.1, 0.3)
-    
-    # Suspicious keywords contribution
-    keyword_count = len(features.get('suspicious_keywords', []))
-    score += min(keyword_count * 0.05, 0.25)
-    
-    # HTML content (phishing often uses HTML)
-    if features.get('has_html', False):
-        score += 0.05
-    
-    # Attachment indicators
-    if features.get('has_attachments', False):
-        score += 0.1
-    
-    return min(score, 1.0)
+# ============================================================
+# EMAIL PREPROCESSOR CLASS
+# ============================================================
+
+@dataclass
+class ProcessedEmail:
+    """Dataclass for processed email results."""
+    preprocessed_text: str
+    features: Dict[str, Any]
+    iocs: Dict[str, List[str]]
+    risk_score: int
+    severity: str
+    error: Optional[str] = None
 
 
 class EmailPreprocessor:
@@ -232,61 +298,106 @@ class EmailPreprocessor:
         self.processed_count = 0
         self.error_count = 0
     
-    def process(self, content: str) -> dict:
+    def process(self, content: str, confidence: float = 0.5) -> ProcessedEmail:
         """
         Process a single email and return full analysis.
         
         Args:
             content: Raw email content
+            confidence: ML model confidence (optional, for risk calculation)
             
         Returns:
-            Dictionary with preprocessed text and features
+            ProcessedEmail dataclass with all extracted information
         """
         try:
+            # Preprocess text
             preprocessed = preprocess_text(content)
+            
+            # Extract features
             features = extract_email_features(content)
-            suspicion_score = calculate_suspicion_score(features)
+            
+            # Extract IOCs
+            iocs = {
+                'urls': extract_urls(content),
+                'domains': extract_domains(content),
+                'emails': extract_email_addresses(content),
+                'keywords': features.get('suspicious_keywords', [])
+            }
+            
+            # Calculate risk
+            risk_score = calculate_risk_score(confidence, features)
+            severity = get_severity(risk_score)
             
             self.processed_count += 1
             
-            return {
-                'preprocessed_text': preprocessed,
-                'features': features,
-                'suspicion_score': suspicion_score,
-                'urls': extract_urls(content),
-                'emails': extract_email_addresses(content),
-            }
+            return ProcessedEmail(
+                preprocessed_text=preprocessed,
+                features=features,
+                iocs=iocs,
+                risk_score=risk_score,
+                severity=severity
+            )
+            
         except Exception as e:
             self.error_count += 1
-            logging.error(f"Error processing email: {e}")
-            return {
-                'preprocessed_text': '',
-                'features': {},
-                'suspicion_score': 0.0,
-                'urls': [],
-                'emails': [],
-                'error': str(e)
-            }
+            logger.error(f"Error processing email: {e}")
+            return ProcessedEmail(
+                preprocessed_text='',
+                features={},
+                iocs={},
+                risk_score=0,
+                severity='LOW',
+                error=str(e)
+            )
     
-    def process_batch(self, contents: list) -> list:
+    def process_batch(self, contents: List[str], confidences: Optional[List[float]] = None) -> List[ProcessedEmail]:
         """
         Process multiple emails.
         
         Args:
             contents: List of raw email contents
+            confidences: Optional list of ML confidences
             
         Returns:
-            List of processed results
+            List of ProcessedEmail results
         """
-        return [self.process(content) for content in contents]
+        if confidences is None:
+            confidences = [0.5] * len(contents)
+        
+        return [
+            self.process(content, conf) 
+            for content, conf in zip(contents, confidences)
+        ]
     
-    def get_stats(self) -> dict:
+    def get_stats(self) -> Dict[str, Any]:
         """Get processing statistics."""
+        total = self.processed_count + self.error_count
         return {
             'processed_count': self.processed_count,
             'error_count': self.error_count,
-            'success_rate': (
-                self.processed_count / (self.processed_count + self.error_count)
-                if (self.processed_count + self.error_count) > 0 else 0
-            )
+            'total': total,
+            'success_rate': self.processed_count / total if total > 0 else 0
         }
+
+
+# ============================================================
+# EXPORTS
+# ============================================================
+
+__all__ = [
+    'preprocess_text',
+    'preprocess_file',
+    'extract_urls',
+    'extract_domains',
+    'extract_email_addresses',
+    'extract_email_features',
+    'calculate_risk_score',
+    'get_severity',
+    'EmailPreprocessor',
+    'ProcessedEmail',
+    'URGENCY_KEYWORDS',
+    'THREAT_KEYWORDS',
+    'ACTION_KEYWORDS',
+    'REWARD_KEYWORDS',
+    'FINANCIAL_KEYWORDS'
+]

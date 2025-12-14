@@ -22,7 +22,12 @@ import {
 const Landing = () => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
+  const [loaded, setLoaded] = useState(false);
   const navigate = useNavigate();
+
+  useEffect(() => {
+    setLoaded(true);
+  }, []);
 
   useEffect(() => {
     const handleScroll = () => {
@@ -79,7 +84,11 @@ const Landing = () => {
   ];
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-emerald-950">
+    <div
+      className={`min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-emerald-950 transition-opacity duration-500 ${
+        loaded ? "opacity-100" : "opacity-0"
+      }`}
+    >
       {/* Navigation */}
       <nav
         className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${

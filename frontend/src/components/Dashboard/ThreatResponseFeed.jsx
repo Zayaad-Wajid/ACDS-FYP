@@ -92,11 +92,14 @@ const ThreatResponseFeed = () => {
   };
 
   return (
-    <div className="bg-slate-900/50 backdrop-blur-sm border border-slate-800 rounded-xl p-6">
+    <div className="relative bg-slate-900/50 backdrop-blur-sm border border-slate-800 hover:border-red-500/20 rounded-xl p-6 transition-all duration-300 group overflow-hidden">
+      {/* Decorative accent */}
+      <div className="absolute top-0 left-0 w-full h-0.5 bg-gradient-to-r from-red-500/50 via-orange-500/30 to-transparent" />
+
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center space-x-3">
-          <div className="p-2 bg-red-500/20 rounded-lg">
+          <div className="p-2 bg-gradient-to-br from-red-500/30 to-orange-500/20 rounded-lg border border-red-500/20">
             <ShieldCheckIcon className="h-6 w-6 text-red-400" />
           </div>
           <div>

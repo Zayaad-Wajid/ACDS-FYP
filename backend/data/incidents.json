@@ -233,6 +233,45 @@
       "processing_time_ms": 0,
       "actions_taken": [],
       "email_preview": "\n            SECURITY ALERT!\n            \n            Your PayPal account has been suspended due to suspicious activity.\n            \n            Click here immediately to restore access: http://paypa1-verify.com/login\n            \n            If you don't act within 24 hours, your account will be permanently closed.\n            \n            PayPal Security Team\n            "
+    },
+    {
+      "incident_id": "INC_87CA4730C4CC",
+      "email_id": "email_28a717aff480",
+      "status": "responded",
+      "severity": "MEDIUM",
+      "risk_score": 56,
+      "is_phishing": true,
+      "created_at": "2025-12-14T10:05:29.196489+00:00",
+      "updated_at": "2025-12-14T10:05:29.196489+00:00",
+      "processing_time_ms": 0,
+      "actions_taken": [],
+      "email_preview": "Dear Customer, Your account has been compromised! Click here immediately to verify your identity: http://suspicious-link.com/verify-account"
+    },
+    {
+      "incident_id": "INC_63A96E35E9E1",
+      "email_id": "email_6b1307b3245e",
+      "status": "responded",
+      "severity": "MEDIUM",
+      "risk_score": 59,
+      "is_phishing": true,
+      "created_at": "2025-12-14T10:05:39.999524+00:00",
+      "updated_at": "2025-12-14T10:05:39.999524+00:00",
+      "processing_time_ms": 0,
+      "actions_taken": [],
+      "email_preview": "URGENT: Your account has been compromised! Click http://phishing-site.com to verify now!"
+    },
+    {
+      "incident_id": "INC_FFDFF3578886",
+      "email_id": "email_64cae621fe55",
+      "status": "responded",
+      "severity": "MEDIUM",
+      "risk_score": 65,
+      "is_phishing": true,
+      "created_at": "2025-12-14T10:05:53.792478+00:00",
+      "updated_at": "2025-12-14T10:05:53.792478+00:00",
+      "processing_time_ms": 0,
+      "actions_taken": [],
+      "email_preview": "URGENT: Your account has been locked! Click http://verify-now.com to unlock it immediately!"
     }
   ],
   "metadata": {

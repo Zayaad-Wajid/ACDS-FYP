@@ -47,11 +47,14 @@ const LiveTestingPanel = () => {
       : 0;
 
   return (
-    <div className="bg-slate-900/50 backdrop-blur-sm border border-slate-800 rounded-xl p-6">
+    <div className="relative bg-slate-900/50 backdrop-blur-sm border border-slate-800 hover:border-emerald-500/30 rounded-xl p-6 transition-all duration-300 group overflow-hidden">
+      {/* Decorative corner accent */}
+      <div className="absolute top-0 right-0 w-24 h-24 bg-gradient-to-bl from-emerald-500/10 to-transparent rounded-bl-full opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
+
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-6 relative">
         <div className="flex items-center space-x-3">
-          <div className="p-2 bg-emerald-500/20 rounded-lg">
+          <div className="p-2 bg-gradient-to-br from-emerald-500/30 to-emerald-600/20 rounded-lg border border-emerald-500/20">
             <BoltIcon className="h-6 w-6 text-emerald-400" />
           </div>
           <div>
@@ -113,40 +116,46 @@ const LiveTestingPanel = () => {
       {/* Stats Cards */}
       {safeResults.length > 0 && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-          <div className="bg-slate-800/50 rounded-lg p-4 border border-slate-700/50">
+          <div className="bg-gradient-to-br from-slate-800/60 to-slate-800/30 rounded-lg p-4 border border-slate-700/50 hover:border-slate-600/70 transition-colors">
             <div className="flex items-center space-x-2 text-slate-400 mb-1">
               <DocumentTextIcon className="h-4 w-4" />
-              <span className="text-xs uppercase">Processed</span>
+              <span className="text-xs uppercase tracking-wider">
+                Processed
+              </span>
             </div>
-            <p className="text-2xl font-bold text-slate-100">
+            <p className="text-2xl font-bold bg-gradient-to-r from-slate-100 to-slate-300 bg-clip-text text-transparent">
               {safeResults.length}
             </p>
           </div>
 
-          <div className="bg-slate-800/50 rounded-lg p-4 border border-slate-700/50">
+          <div className="bg-gradient-to-br from-red-900/20 to-slate-800/30 rounded-lg p-4 border border-red-500/20 hover:border-red-500/40 transition-colors">
             <div className="flex items-center space-x-2 text-red-400 mb-1">
               <ShieldExclamationIcon className="h-4 w-4" />
-              <span className="text-xs uppercase">Threats Found</span>
+              <span className="text-xs uppercase tracking-wider">
+                Threats Found
+              </span>
             </div>
             <p className="text-2xl font-bold text-red-400">
               {(Array.isArray(liveThreats) ? liveThreats : []).length}
             </p>
           </div>
 
-          <div className="bg-slate-800/50 rounded-lg p-4 border border-slate-700/50">
+          <div className="bg-gradient-to-br from-green-900/20 to-slate-800/30 rounded-lg p-4 border border-green-500/20 hover:border-green-500/40 transition-colors">
             <div className="flex items-center space-x-2 text-green-400 mb-1">
               <CheckCircleIcon className="h-4 w-4" />
-              <span className="text-xs uppercase">Auto-Resolved</span>
+              <span className="text-xs uppercase tracking-wider">
+                Auto-Resolved
+              </span>
             </div>
             <p className="text-2xl font-bold text-green-400">
               {(Array.isArray(responseActions) ? responseActions : []).length}
             </p>
           </div>
 
-          <div className="bg-slate-800/50 rounded-lg p-4 border border-slate-700/50">
+          <div className="bg-gradient-to-br from-emerald-900/20 to-slate-800/30 rounded-lg p-4 border border-emerald-500/20 hover:border-emerald-500/40 transition-colors">
             <div className="flex items-center space-x-2 text-emerald-400 mb-1">
               <CheckCircleIcon className="h-4 w-4" />
-              <span className="text-xs uppercase">Accuracy</span>
+              <span className="text-xs uppercase tracking-wider">Accuracy</span>
             </div>
             <p className="text-2xl font-bold text-emerald-400">{accuracy}%</p>
           </div>

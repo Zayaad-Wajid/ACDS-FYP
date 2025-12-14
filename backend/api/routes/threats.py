@@ -50,9 +50,77 @@ except ImportError:
 
 router = APIRouter(prefix="/threats", tags=["Threat Detection"])
 
-# In-memory threat storage (would be database in production)
+# Import database (optional - fallback to in-memory)
+try:
+    from database.connection import get_collection
+    USE_DATABASE = True
+except ImportError:
+    USE_DATABASE = False
+    get_collection = None
+
+# In-memory threat storage (fallback)
 import random
 _threats_db = {}
+
+
+def save_scan_to_database(scan_data: dict) -> Optional[str]:
+    """Save scan result to database and return scan_id."""
+    if not USE_DATABASE or not get_collection:
+        return None
+    
+    try:
+        collection = get_collection("email_scans")
+        if collection is not None:
+            scan_doc = {
+                "scan_id": f"SCAN-{random.randint(10000, 99999)}",
+                "email_content": scan_data.get("content", "")[:500],  # Limit stored content
+                "email_subject": scan_data.get("subject"),
+                "email_sender": scan_data.get("sender"),
+                "email_recipient": scan_data.get("recipient"),
+                "is_phishing": scan_data.get("is_phishing", False),
+                "confidence": scan_data.get("confidence", 0),
+                "risk_level": scan_data.get("severity", "LOW"),
+                "indicators": scan_data.get("indicators", {}),
+                "processing_time_ms": scan_data.get("processing_time_ms", 0),
+                "model_version": "2.0.0",
+                "scanned_at": datetime.now(timezone.utc)
+            }
+            result = collection.insert_one(scan_doc)
+            return scan_doc["scan_id"]
+    except Exception as e:
+        print(f"Error saving scan: {e}")
+    return None
+
+
+def save_threat_to_database(threat_data: dict) -> Optional[str]:
+    """Save detected threat to database and return threat_id."""
+    if not USE_DATABASE or not get_collection:
+        return None
+    
+    try:
+        collection = get_collection("threats")
+        if collection is not None:
+            threat_doc = {
+                "threat_id": f"THR-{random.randint(1000, 9999)}",
+                "threat_type": threat_data.get("threat_type", "phishing"),
+                "severity": threat_data.get("severity", "MEDIUM"),
+                "status": "active",
+                "confidence": threat_data.get("confidence", 0),
+                "email_subject": threat_data.get("subject"),
+                "email_sender": threat_data.get("sender"),
+                "email_recipient": threat_data.get("recipient"),
+                "email_content_preview": threat_data.get("content", "")[:200],
+                "indicators": threat_data.get("indicators", {}),
+                "risk_factors": threat_data.get("risk_factors", []),
+                "action_taken": threat_data.get("action_taken"),
+                "detected_at": datetime.now(timezone.utc),
+                "updated_at": datetime.now(timezone.utc)
+            }
+            result = collection.insert_one(threat_doc)
+            return threat_doc["threat_id"]
+    except Exception as e:
+        print(f"Error saving threat: {e}")
+    return None
 
 
 @router.get("/list")
@@ -66,6 +134,43 @@ async def list_threats(
     
     Returns paginated list of threats with optional filtering.
     """
+    # Try database first
+    if USE_DATABASE and get_collection:
+        try:
+            collection = get_collection("threats")
+            if collection is not None:
+                query = {}
+                if severity:
+                    query["severity"] = severity.upper()
+                if status:
+                    query["status"] = status.lower()
+                
+                cursor = collection.find(query).sort("detected_at", -1).limit(limit)
+                threats = []
+                for threat in cursor:
+                    threats.append({
+                        "id": threat.get("threat_id", str(threat.get("_id"))),
+                        "type": threat.get("threat_type", "Phishing"),
+                        "severity": threat.get("severity", "MEDIUM"),
+                        "confidence": threat.get("confidence", 0),
+                        "status": threat.get("status", "active").title(),
+                        "source": threat.get("email_sender", "unknown"),
+                        "subject": threat.get("email_subject", "No subject"),
+                        "detected_at": threat.get("detected_at").isoformat() if threat.get("detected_at") else datetime.now(timezone.utc).isoformat(),
+                        "description": threat.get("email_content_preview") or "Suspicious email detected"
+                    })
+                
+                total = collection.count_documents(query)
+                return {
+                    "success": True,
+                    "threats": threats,
+                    "total": total,
+                    "data_source": "database"
+                }
+        except Exception as e:
+            print(f"Database error: {e}")
+    
+    # Fallback to mock data
     severities = ["CRITICAL", "HIGH", "MEDIUM", "LOW"]
     threat_types = ["Phishing", "Spear Phishing", "BEC", "Credential Harvesting"]
     statuses = ["Active", "Resolved", "Investigating", "Quarantined"]
@@ -89,7 +194,8 @@ async def list_threats(
     return {
         "success": True,
         "threats": threats,
-        "total": len(threats)
+        "total": len(threats),
+        "data_source": "mock"
     }
 
 
@@ -98,7 +204,43 @@ async def get_threat_details(threat_id: str):
     """
     Get detailed information about a specific threat.
     """
-    # Mock threat details
+    # Try database first
+    if USE_DATABASE and get_collection:
+        try:
+            collection = get_collection("threats")
+            if collection is not None:
+                threat = collection.find_one({"threat_id": threat_id})
+                if threat:
+                    return {
+                        "success": True,
+                        "threat": {
+                            "id": threat.get("threat_id", str(threat.get("_id"))),
+                            "type": threat.get("threat_type", "Phishing"),
+                            "severity": threat.get("severity", "MEDIUM"),
+                            "confidence": threat.get("confidence", 0),
+                            "status": threat.get("status", "active").title(),
+                            "source": threat.get("email_sender", "unknown"),
+                            "subject": threat.get("email_subject", "No subject"),
+                            "recipient": threat.get("email_recipient", "unknown"),
+                            "detected_at": threat.get("detected_at").isoformat() if threat.get("detected_at") else None,
+                            "content_preview": threat.get("email_content_preview", ""),
+                            "indicators": threat.get("indicators", {}),
+                            "risk_factors": threat.get("risk_factors", []),
+                            "action_taken": threat.get("action_taken"),
+                            "resolved_by": threat.get("resolved_by"),
+                            "resolution_notes": threat.get("resolution_notes"),
+                            "recommendations": [
+                                "Do not click any links in this email",
+                                "Report to IT security team",
+                                "Change passwords if credentials were entered"
+                            ]
+                        },
+                        "data_source": "database"
+                    }
+        except Exception as e:
+            print(f"Database error: {e}")
+    
+    # Fallback to mock threat details
     return {
         "success": True,
         "threat": {
@@ -126,7 +268,8 @@ async def get_threat_details(threat_id: str):
                 "Report to IT security team",
                 "Change passwords if credentials were entered"
             ]
-        }
+        },
+        "data_source": "mock"
     }
 
 
@@ -167,6 +310,44 @@ async def scan_email(request: EmailScanRequest):
         
         processing_time = (time.time() - start_time) * 1000
         result['processing_time_ms'] = round(processing_time, 2)
+        
+        # Save to database
+        detection = result.get('pipeline_results', {}).get('detection', {})
+        is_phishing = detection.get('is_phishing', False)
+        
+        scan_data = {
+            "content": request.content,
+            "subject": request.subject,
+            "sender": request.sender,
+            "recipient": request.recipient,
+            "is_phishing": is_phishing,
+            "confidence": detection.get('confidence', 0),
+            "severity": result.get('severity', 'LOW'),
+            "processing_time_ms": result['processing_time_ms'],
+            "indicators": result.get('pipeline_results', {}).get('explainability', {}).get('iocs', {})
+        }
+        
+        scan_id = save_scan_to_database(scan_data)
+        if scan_id:
+            result['scan_id'] = scan_id
+        
+        # If phishing detected, also save as threat
+        if is_phishing:
+            threat_data = {
+                "threat_type": "phishing",
+                "severity": result.get('severity', 'MEDIUM'),
+                "confidence": detection.get('confidence', 0),
+                "subject": request.subject,
+                "sender": request.sender,
+                "recipient": request.recipient,
+                "content": request.content,
+                "indicators": scan_data["indicators"],
+                "risk_factors": detection.get('risk_factors', []),
+                "action_taken": result.get('pipeline_results', {}).get('response', {}).get('actions_executed', [None])[0]
+            }
+            threat_id = save_threat_to_database(threat_data)
+            if threat_id:
+                result['threat_id'] = threat_id
         
         return {
             "success": True,

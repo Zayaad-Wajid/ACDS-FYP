@@ -425,4 +425,76 @@ export const checkBackendHealth = async () => {
   }
 };
 
+// ==================== DEMO MODE API ====================
+
+export const startDemoMode = async (intervalSeconds = 300, batchSize = 5) => {
+  try {
+    const response = await api.post("/demo/start", {
+      interval_seconds: intervalSeconds,
+      batch_size: batchSize,
+    });
+    return response.data;
+  } catch (error) {
+    console.error("Error starting demo mode:", error);
+    throw error.response?.data || { message: "Failed to start demo mode" };
+  }
+};
+
+export const stopDemoMode = async () => {
+  try {
+    const response = await api.post("/demo/stop");
+    return response.data;
+  } catch (error) {
+    console.error("Error stopping demo mode:", error);
+    throw error.response?.data || { message: "Failed to stop demo mode" };
+  }
+};
+
+export const getDemoStatus = async () => {
+  try {
+    const response = await api.get("/demo/status");
+    return response.data;
+  } catch (error) {
+    console.error("Error fetching demo status:", error);
+    return { running: false, stats: null };
+  }
+};
+
+export const runDemoBatch = async (count = 5) => {
+  try {
+    const response = await api.post("/demo/run-batch", { count });
+    return response.data;
+  } catch (error) {
+    console.error("Error running demo batch:", error);
+    throw error.response?.data || { message: "Failed to run batch" };
+  }
+};
+
+export const setDemoInterval = async (intervalSeconds) => {
+  try {
+    const response = await api.post("/demo/set-interval", null, {
+      params: { interval_seconds: intervalSeconds },
+    });
+    return response.data;
+  } catch (error) {
+    console.error("Error setting demo interval:", error);
+    throw error.response?.data || { message: "Failed to set interval" };
+  }
+};
+
+// ==================== ACTIVITY LOGS API ====================
+
+export const fetchActivityLogs = async (limit = 50, eventType = null) => {
+  try {
+    const params = { limit };
+    if (eventType) params.event_type = eventType;
+
+    const response = await api.get("/dashboard/activity-logs", { params });
+    return response.data;
+  } catch (error) {
+    console.error("Error fetching activity logs:", error);
+    return { logs: [], count: 0 };
+  }
+};
+
 export default api;

@@ -2,6 +2,7 @@
 Authentication API Routes
 ==========================
 API endpoints for user authentication and authorization.
+Uses MongoDB database with fallback to in-memory storage.
 """
 
 import hashlib
@@ -9,7 +10,7 @@ import jwt
 from datetime import datetime, timezone, timedelta
 from typing import Optional
 from fastapi import APIRouter, HTTPException, Depends, Header
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel
 
 # Define models locally to avoid import issues
 class UserLogin(BaseModel):
@@ -21,6 +22,10 @@ class UserCreate(BaseModel):
     name: str
     password: str
     role: str = "user"
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
 
 # Import settings
 try:
@@ -35,9 +40,17 @@ except ImportError:
     DEFAULT_ADMIN_EMAIL = "admin@acds.com"
     DEFAULT_ADMIN_PASSWORD = "admin123"
 
+# Import database (optional - fallback to in-memory)
+try:
+    from database.connection import get_collection
+    USE_DATABASE = True
+except ImportError:
+    USE_DATABASE = False
+    get_collection = None
+
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
-# In-memory user store (use database in production)
+# In-memory user store (fallback when database unavailable)
 users_db = {
     DEFAULT_ADMIN_EMAIL: {
         "id": "admin-001",
@@ -46,7 +59,8 @@ users_db = {
         "role": "admin",
         "password_hash": hashlib.sha256(DEFAULT_ADMIN_PASSWORD.encode()).hexdigest(),
         "created_at": datetime.now(timezone.utc).isoformat(),
-        "last_login": None
+        "last_login": None,
+        "is_active": True
     }
 }
 
@@ -57,6 +71,76 @@ active_tokens = {}
 def hash_password(password: str) -> str:
     """Hash a password using SHA-256."""
     return hashlib.sha256(password.encode()).hexdigest()
+
+
+def get_user_by_email(email: str) -> Optional[dict]:
+    """Get user by email from database or in-memory store."""
+    email = email.lower()
+    
+    if USE_DATABASE and get_collection:
+        try:
+            collection = get_collection("users")
+            if collection is not None:
+                user = collection.find_one({"email": email})
+                if user:
+                    user["id"] = str(user.get("_id", ""))
+                    return user
+        except Exception as e:
+            print(f"Database error: {e}")
+    
+    # Fallback to in-memory store
+    return users_db.get(email)
+
+
+def update_user_login(user_id: str, email: str):
+    """Update user's last login timestamp."""
+    email = email.lower()
+    
+    if USE_DATABASE and get_collection:
+        try:
+            collection = get_collection("users")
+            if collection is not None:
+                collection.update_one(
+                    {"email": email},
+                    {
+                        "$set": {"last_login": datetime.now(timezone.utc)},
+                        "$inc": {"login_count": 1}
+                    }
+                )
+        except Exception as e:
+            print(f"Database update error: {e}")
+    
+    # Also update in-memory
+    if email in users_db:
+        users_db[email]["last_login"] = datetime.now(timezone.utc).isoformat()
+
+
+def ensure_admin_exists():
+    """Ensure admin user exists in database."""
+    if USE_DATABASE and get_collection:
+        try:
+            collection = get_collection("users")
+            if collection is not None:
+                admin = collection.find_one({"email": DEFAULT_ADMIN_EMAIL})
+                if not admin:
+                    collection.insert_one({
+                        "email": DEFAULT_ADMIN_EMAIL,
+                        "name": "System Administrator",
+                        "role": "admin",
+                        "password_hash": hash_password(DEFAULT_ADMIN_PASSWORD),
+                        "created_at": datetime.now(timezone.utc),
+                        "last_login": None,
+                        "is_active": True,
+                        "login_count": 0,
+                        "preferences": {}
+                    })
+                    print("✅ Created default admin user in database")
+        except Exception as e:
+            print(f"Admin creation error: {e}")
+
+
+# Ensure admin exists on module load
+ensure_admin_exists()
 
 
 def create_token(user_id: str, email: str, role: str) -> tuple:
@@ -103,10 +187,12 @@ async def get_current_user(authorization: str = Header(None)):
         raise HTTPException(status_code=401, detail="Invalid or expired token")
     
     user_email = payload.get("email")
-    if user_email not in users_db:
+    user = get_user_by_email(user_email)
+    
+    if not user:
         raise HTTPException(status_code=401, detail="User not found")
     
-    return users_db[user_email]
+    return user
 
 
 @router.post("/login")
@@ -119,28 +205,35 @@ async def login(credentials: UserLogin):
     """
     email = credentials.email.lower()
     
-    # Check if user exists
-    if email not in users_db:
+    # Get user from database or in-memory
+    user = get_user_by_email(email)
+    
+    if not user:
         raise HTTPException(status_code=401, detail="Invalid email or password")
     
-    user = users_db[email]
+    # Check if active
+    if not user.get("is_active", True):
+        raise HTTPException(status_code=401, detail="Account is disabled")
     
     # Verify password
     password_hash = hash_password(credentials.password)
-    if password_hash != user["password_hash"]:
+    if password_hash != user.get("password_hash"):
         raise HTTPException(status_code=401, detail="Invalid email or password")
     
+    # Get user ID (from MongoDB _id or id field)
+    user_id = user.get("id") or str(user.get("_id", "unknown"))
+    
     # Create token
-    token, expiration = create_token(user["id"], user["email"], user["role"])
+    token, expiration = create_token(user_id, user["email"], user.get("role", "user"))
     
     # Store active token
     active_tokens[token] = {
-        "user_id": user["id"],
+        "user_id": user_id,
         "expires": expiration.isoformat()
     }
     
     # Update last login
-    users_db[email]["last_login"] = datetime.now(timezone.utc).isoformat()
+    update_user_login(user_id, email)
     
     return {
         "success": True,
@@ -148,10 +241,10 @@ async def login(credentials: UserLogin):
         "token_type": "bearer",
         "expires_in": JWT_EXPIRATION_HOURS * 3600,
         "user": {
-            "id": user["id"],
+            "id": user_id,
             "email": user["email"],
-            "name": user["name"],
-            "role": user["role"]
+            "name": user.get("name", "User"),
+            "role": user.get("role", "user")
         }
     }
 
@@ -179,15 +272,16 @@ async def get_current_user_info(user: dict = Depends(get_current_user)):
     """
     Get current authenticated user information.
     """
+    user_id = user.get("id") or str(user.get("_id", ""))
     return {
         "success": True,
         "user": {
-            "id": user["id"],
-            "email": user["email"],
-            "name": user["name"],
-            "role": user["role"],
-            "created_at": user["created_at"],
-            "last_login": user["last_login"]
+            "id": user_id,
+            "email": user.get("email"),
+            "name": user.get("name", "User"),
+            "role": user.get("role", "user"),
+            "created_at": user.get("created_at"),
+            "last_login": user.get("last_login")
         }
     }
 
@@ -202,26 +296,44 @@ async def register_user(user_data: UserCreate, current_user: dict = Depends(get_
     
     email = user_data.email.lower()
     
-    if email in users_db:
+    # Check if user exists
+    existing = get_user_by_email(email)
+    if existing:
         raise HTTPException(status_code=400, detail="User already exists")
     
     new_user = {
-        "id": f"user-{len(users_db) + 1:03d}",
         "email": email,
         "name": user_data.name,
         "role": user_data.role,
         "password_hash": hash_password(user_data.password),
-        "created_at": datetime.now(timezone.utc).isoformat(),
-        "last_login": None
+        "created_at": datetime.now(timezone.utc),
+        "last_login": None,
+        "is_active": True,
+        "login_count": 0,
+        "preferences": {}
     }
     
+    # Save to database
+    if USE_DATABASE and get_collection:
+        try:
+            collection = get_collection("users")
+            if collection is not None:
+                result = collection.insert_one(new_user)
+                new_user["id"] = str(result.inserted_id)
+        except Exception as e:
+            print(f"Database error: {e}")
+            new_user["id"] = f"user-{len(users_db) + 1:03d}"
+    else:
+        new_user["id"] = f"user-{len(users_db) + 1:03d}"
+    
+    # Also add to in-memory store
     users_db[email] = new_user
     
     return {
         "success": True,
         "message": "User registered successfully",
         "user": {
-            "id": new_user["id"],
+            "id": new_user.get("id"),
             "email": new_user["email"],
             "name": new_user["name"],
             "role": new_user["role"]
@@ -231,19 +343,34 @@ async def register_user(user_data: UserCreate, current_user: dict = Depends(get_
 
 @router.post("/change-password")
 async def change_password(
-    current_password: str,
-    new_password: str,
+    request: ChangePasswordRequest,
     user: dict = Depends(get_current_user)
 ):
     """
     Change current user's password.
     """
     # Verify current password
-    if hash_password(current_password) != user["password_hash"]:
+    if hash_password(request.current_password) != user.get("password_hash"):
         raise HTTPException(status_code=400, detail="Current password is incorrect")
     
-    # Update password
-    users_db[user["email"]]["password_hash"] = hash_password(new_password)
+    new_hash = hash_password(request.new_password)
+    email = user.get("email", "").lower()
+    
+    # Update in database
+    if USE_DATABASE and get_collection:
+        try:
+            collection = get_collection("users")
+            if collection is not None:
+                collection.update_one(
+                    {"email": email},
+                    {"$set": {"password_hash": new_hash}}
+                )
+        except Exception as e:
+            print(f"Database error: {e}")
+    
+    # Update in-memory store
+    if email in users_db:
+        users_db[email]["password_hash"] = new_hash
     
     return {
         "success": True,
@@ -279,7 +406,11 @@ async def validate_token(authorization: str = Header(None)):
 
 
 @router.get("/users")
-async def list_users(current_user: dict = Depends(get_current_user)):
+async def list_users(
+    skip: int = 0,
+    limit: int = 50,
+    current_user: dict = Depends(get_current_user)
+):
     """
     List all users (admin only).
     """
@@ -287,18 +418,43 @@ async def list_users(current_user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=403, detail="Admin access required")
     
     users_list = []
+    
+    # Try database first
+    if USE_DATABASE and get_collection:
+        try:
+            collection = get_collection("users")
+            if collection is not None:
+                cursor = collection.find({}, {"password_hash": 0}).skip(skip).limit(limit)
+                for user in cursor:
+                    users_list.append({
+                        "id": str(user.get("_id", "")),
+                        "email": user.get("email"),
+                        "name": user.get("name", "User"),
+                        "role": user.get("role", "user"),
+                        "is_active": user.get("is_active", True),
+                        "created_at": user.get("created_at"),
+                        "last_login": user.get("last_login")
+                    })
+                total = collection.count_documents({})
+                return {"success": True, "users": users_list, "count": len(users_list), "total": total}
+        except Exception as e:
+            print(f"Database error: {e}")
+    
+    # Fallback to in-memory
     for email, user in users_db.items():
         users_list.append({
-            "id": user["id"],
+            "id": user.get("id"),
             "email": user["email"],
-            "name": user["name"],
-            "role": user["role"],
+            "name": user.get("name", "User"),
+            "role": user.get("role", "user"),
+            "is_active": user.get("is_active", True),
             "created_at": user["created_at"],
             "last_login": user["last_login"]
         })
     
     return {
         "success": True,
-        "users": users_list,
-        "count": len(users_list)
+        "users": users_list[skip:skip + limit],
+        "count": len(users_list[skip:skip + limit]),
+        "total": len(users_list)
     }

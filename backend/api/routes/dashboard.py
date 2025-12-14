@@ -2,6 +2,7 @@
 Dashboard API Routes
 =====================
 API endpoints for dashboard data and real-time statistics.
+Uses MongoDB database with fallback to mock data.
 """
 
 from datetime import datetime, timezone, timedelta
@@ -9,7 +10,66 @@ from typing import Optional
 from fastapi import APIRouter, Query
 import random
 
+# Import database (optional - fallback to mock data)
+try:
+    from database.connection import get_collection
+    USE_DATABASE = True
+except ImportError:
+    USE_DATABASE = False
+    get_collection = None
+
 router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
+
+
+def get_db_stats():
+    """Get statistics from database."""
+    if not USE_DATABASE or not get_collection:
+        return None
+    
+    try:
+        # Get counts from various collections
+        threats_col = get_collection("threats")
+        scans_col = get_collection("email_scans")
+        feedback_col = get_collection("feedback")
+        alerts_col = get_collection("alerts")
+        
+        if threats_col is None:
+            return None
+        
+        total_threats = threats_col.count_documents({})
+        active_threats = threats_col.count_documents({"status": "active"})
+        resolved_threats = threats_col.count_documents({"status": "resolved"})
+        
+        # Get today's counts
+        today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+        threats_today = threats_col.count_documents({"detected_at": {"$gte": today}})
+        
+        total_scans = scans_col.count_documents({}) if scans_col is not None else 0
+        phishing_detected = scans_col.count_documents({"is_phishing": True}) if scans_col is not None else 0
+        scans_today = scans_col.count_documents({"scanned_at": {"$gte": today}}) if scans_col is not None else 0
+        
+        pending_feedback = feedback_col.count_documents({"is_reviewed": False}) if feedback_col is not None else 0
+        unread_alerts = alerts_col.count_documents({"is_acknowledged": False}) if alerts_col is not None else 0
+        
+        # Calculate detection rate
+        detection_rate = round((phishing_detected / total_scans * 100) if total_scans > 0 else 0, 1)
+        
+        return {
+            "total_threats": total_threats,
+            "active_threats": active_threats,
+            "resolved_threats": resolved_threats,
+            "threats_today": threats_today,
+            "total_scans": total_scans,
+            "scans_today": scans_today,
+            "phishing_detected": phishing_detected,
+            "detection_rate": detection_rate,
+            "pending_feedback": pending_feedback,
+            "unread_alerts": unread_alerts,
+            "from_database": True
+        }
+    except Exception as e:
+        print(f"Database stats error: {e}")
+        return None
 
 
 @router.get("/stats")
@@ -19,7 +79,36 @@ async def get_dashboard_stats():
     
     Returns key metrics for the dashboard overview.
     """
-    # In production, these would come from the database
+    # Try to get real stats from database
+    db_stats = get_db_stats()
+    
+    if db_stats:
+        return {
+            "success": True,
+            "stats": {
+                "total_threats": db_stats["total_threats"],
+                "threats_blocked": db_stats["resolved_threats"],
+                "active_threats": db_stats["active_threats"],
+                "resolved_today": db_stats["threats_today"],
+                "detection_rate": db_stats["detection_rate"],
+                "false_positive_rate": 2.1,
+                "avg_response_time_ms": 245,
+                "emails_scanned_today": db_stats["scans_today"],
+                "model_accuracy": 97.2,
+                "system_uptime": "99.9%"
+            },
+            # Also include top-level for frontend compatibility
+            "total_threats": db_stats["total_threats"],
+            "threats_blocked": db_stats["resolved_threats"],
+            "active_threats": db_stats["active_threats"],
+            "resolved_today": db_stats["threats_today"],
+            "detection_rate": db_stats["detection_rate"],
+            "emails_scanned_today": db_stats["scans_today"],
+            "model_accuracy": 97.2,
+            "data_source": "database"
+        }
+    
+    # Fallback to mock data
     return {
         "success": True,
         "stats": {
@@ -41,7 +130,8 @@ async def get_dashboard_stats():
         "resolved_today": 8,
         "detection_rate": 95.3,
         "emails_scanned_today": 3421,
-        "model_accuracy": 97.2
+        "model_accuracy": 97.2,
+        "data_source": "mock"
     }
 
 
@@ -94,8 +184,48 @@ async def get_model_status_compat():
 
 @router.get("/activity")
 async def get_activity_compat(limit: int = Query(20, le=100)):
-    """Get activity (frontend compatible route)."""
-    # Generate activity data for timeline
+    """Get activity timeline data from database."""
+    # Try to get real activity data from database
+    if USE_DATABASE and get_collection:
+        try:
+            threats_col = get_collection("threats")
+            scans_col = get_collection("email_scans")
+            
+            if threats_col is not None:
+                activity = []
+                for i in range(7):
+                    date = datetime.now(timezone.utc) - timedelta(days=6 - i)
+                    date_start = date.replace(hour=0, minute=0, second=0, microsecond=0)
+                    date_end = date_start + timedelta(days=1)
+                    
+                    # Get real counts from database
+                    threats_count = threats_col.count_documents({
+                        "detected_at": {"$gte": date_start, "$lt": date_end}
+                    })
+                    resolved_count = threats_col.count_documents({
+                        "detected_at": {"$gte": date_start, "$lt": date_end},
+                        "status": "resolved"
+                    })
+                    scans_count = scans_col.count_documents({
+                        "scanned_at": {"$gte": date_start, "$lt": date_end}
+                    }) if scans_col is not None else 0
+                    
+                    activity.append({
+                        "date": date.strftime("%Y-%m-%d"),
+                        "threats": threats_count,
+                        "scans": scans_count,
+                        "blocked": resolved_count
+                    })
+                
+                return {
+                    "success": True,
+                    "activity": activity,
+                    "data_source": "database"
+                }
+        except Exception as e:
+            print(f"Activity fetch error: {e}")
+    
+    # Fallback to mock data
     activity = []
     for i in range(7):
         date = datetime.now(timezone.utc) - timedelta(days=6 - i)
@@ -107,7 +237,64 @@ async def get_activity_compat(limit: int = Query(20, le=100)):
         })
     return {
         "success": True,
-        "activity": activity
+        "activity": activity,
+        "data_source": "mock"
+    }
+
+
+@router.get("/activity-logs")
+async def get_activity_logs(
+    limit: int = Query(50, le=200),
+    event_type: Optional[str] = None
+):
+    """
+    Get system activity logs from database.
+    
+    Returns recent system events including scans, threats, and responses.
+    """
+    if USE_DATABASE and get_collection:
+        try:
+            logs_col = get_collection("activity_logs")
+            
+            if logs_col is not None:
+                query = {}
+                if event_type:
+                    query["event"] = event_type
+                
+                cursor = logs_col.find(query).sort("timestamp", -1).limit(limit)
+                logs = []
+                for log in cursor:
+                    logs.append({
+                        "id": str(log.get("_id")),
+                        "event": log.get("event", "unknown"),
+                        "message": log.get("message") or log.get("email_subject", "Activity logged"),
+                        "session_id": log.get("session_id"),
+                        "details": {
+                            "is_phishing": log.get("is_phishing"),
+                            "confidence": log.get("confidence"),
+                            "emails_processed": log.get("emails_processed"),
+                            "phishing_detected": log.get("phishing_detected")
+                        },
+                        "timestamp": log.get("timestamp").isoformat() if log.get("timestamp") else datetime.now(timezone.utc).isoformat()
+                    })
+                
+                if logs:
+                    return {
+                        "success": True,
+                        "logs": logs,
+                        "count": len(logs),
+                        "data_source": "database"
+                    }
+        except Exception as e:
+            print(f"Activity logs error: {e}")
+    
+    # Fallback - return empty logs (will be populated by demo scheduler)
+    return {
+        "success": True,
+        "logs": [],
+        "count": 0,
+        "message": "No activity logs yet. Start demo mode to generate logs.",
+        "data_source": "empty"
     }
 
 
@@ -121,7 +308,40 @@ async def get_recent_threats(
     
     Returns list of recently detected threats for the dashboard feed.
     """
-    # Mock data - would come from database
+    # Try database first
+    if USE_DATABASE and get_collection:
+        try:
+            collection = get_collection("threats")
+            if collection is not None:
+                query = {}
+                if severity:
+                    query["severity"] = severity.upper()
+                
+                cursor = collection.find(query).sort("detected_at", -1).limit(limit)
+                threats = []
+                for threat in cursor:
+                    threats.append({
+                        "id": threat.get("threat_id", str(threat.get("_id"))),
+                        "type": threat.get("threat_type", "Phishing"),
+                        "severity": threat.get("severity", "MEDIUM"),
+                        "confidence": threat.get("confidence", 0),
+                        "status": threat.get("status", "active").title(),
+                        "source": threat.get("email_sender", "unknown"),
+                        "detected_at": threat.get("detected_at").isoformat() if threat.get("detected_at") else datetime.now(timezone.utc).isoformat(),
+                        "description": threat.get("email_subject") or "Suspicious email detected"
+                    })
+                
+                if threats:
+                    return {
+                        "success": True,
+                        "threats": threats,
+                        "count": len(threats),
+                        "data_source": "database"
+                    }
+        except Exception as e:
+            print(f"Database error: {e}")
+    
+    # Fallback to mock data
     severities = ["CRITICAL", "HIGH", "MEDIUM", "LOW"]
     threat_types = ["Phishing", "Spear Phishing", "BEC", "Credential Harvesting"]
     statuses = ["Active", "Resolved", "Investigating", "Quarantined"]
@@ -143,7 +363,8 @@ async def get_recent_threats(
     return {
         "success": True,
         "threats": threats,
-        "count": len(threats)
+        "count": len(threats),
+        "data_source": "mock"
     }
 
 
@@ -175,6 +396,25 @@ async def get_threats_by_severity():
     """
     Get threat breakdown by severity level.
     """
+    # Try database first
+    if USE_DATABASE and get_collection:
+        try:
+            collection = get_collection("threats")
+            if collection is not None:
+                pipeline = [
+                    {"$group": {"_id": "$severity", "count": {"$sum": 1}}}
+                ]
+                result = list(collection.aggregate(pipeline))
+                breakdown = {item["_id"]: item["count"] for item in result if item["_id"]}
+                if breakdown:
+                    return {
+                        "success": True,
+                        "breakdown": breakdown,
+                        "data_source": "database"
+                    }
+        except Exception as e:
+            print(f"Database error: {e}")
+    
     return {
         "success": True,
         "breakdown": {
@@ -182,7 +422,8 @@ async def get_threats_by_severity():
             "HIGH": 47,
             "MEDIUM": 89,
             "LOW": 96
-        }
+        },
+        "data_source": "mock"
     }
 
 
@@ -191,6 +432,25 @@ async def get_threats_by_type():
     """
     Get threat breakdown by attack type.
     """
+    # Try database first
+    if USE_DATABASE and get_collection:
+        try:
+            collection = get_collection("threats")
+            if collection is not None:
+                pipeline = [
+                    {"$group": {"_id": "$threat_type", "count": {"$sum": 1}}}
+                ]
+                result = list(collection.aggregate(pipeline))
+                breakdown = {item["_id"]: item["count"] for item in result if item["_id"]}
+                if breakdown:
+                    return {
+                        "success": True,
+                        "breakdown": breakdown,
+                        "data_source": "database"
+                    }
+        except Exception as e:
+            print(f"Database error: {e}")
+    
     return {
         "success": True,
         "breakdown": {
@@ -200,7 +460,8 @@ async def get_threats_by_type():
             "Credential Harvesting": 35,
             "Malware Distribution": 18,
             "Other": 12
-        }
+        },
+        "data_source": "mock"
     }
 
 

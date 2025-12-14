@@ -33,6 +33,7 @@ try:
     from api.routes.auth import router as auth_router
     from api.routes.dashboard import router as dashboard_router
     from api.routes.testing import router as testing_router
+    from api.routes.demo import router as demo_router
 except ImportError as e:
     print(f"Warning: Could not import routers: {e}")
     threats_router = None
@@ -41,6 +42,7 @@ except ImportError as e:
     auth_router = None
     dashboard_router = None
     testing_router = None
+    demo_router = None
 
 # Import services for health check
 try:
@@ -49,6 +51,12 @@ try:
 except ImportError:
     get_phishing_service = None
     get_orchestrator_agent = None
+
+# Import database
+try:
+    from database.connection import Database
+except ImportError:
+    Database = None
 
 
 # Application startup/shutdown
@@ -60,6 +68,21 @@ async def lifespan(app: FastAPI):
     print("ACDS Backend Starting...")
     print(f"API Version: {API_VERSION}")
     print(f"Time: {datetime.now(timezone.utc).isoformat()}")
+    
+    # Initialize Database
+    if Database:
+        try:
+            connected = await Database.connect()
+            if connected:
+                print("✅ MongoDB connected successfully")
+            else:
+                print("⚠️ MongoDB connection failed - running without database")
+            # Also init sync connection for routes that need it
+            Database.connect_sync()
+        except Exception as e:
+            print(f"⚠️ Database initialization error: {e}")
+    else:
+        print("⚠️ Database module not available")
     
     # Initialize ML service
     if get_phishing_service:
@@ -84,6 +107,11 @@ async def lifespan(app: FastAPI):
     
     # Shutdown
     print("ACDS Backend shutting down...")
+    
+    # Close database connection
+    if Database:
+        await Database.disconnect()
+        print("✅ Database connections closed")
 
 
 # Create FastAPI application
@@ -138,6 +166,8 @@ if dashboard_router:
     app.include_router(dashboard_router, prefix=API_PREFIX)
 if testing_router:
     app.include_router(testing_router, prefix=API_PREFIX)
+if demo_router:
+    app.include_router(demo_router, prefix=API_PREFIX)
 
 
 # =============================================================================
@@ -160,6 +190,7 @@ async def root():
             "feedback": f"{API_PREFIX}/feedback",
             "reports": f"{API_PREFIX}/reports",
             "testing": f"{API_PREFIX}/testing",
+            "demo": f"{API_PREFIX}/demo",
         }
     }
 

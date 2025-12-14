@@ -14,7 +14,9 @@ load_dotenv()
 # =============================================================================
 # DATABASE SETTINGS
 # =============================================================================
-MONGO_URI: str = os.getenv("MONGO_URI", "mongodb://localhost:27017")
+# For Docker: mongodb://acds:acds123@localhost:27017/acds?authSource=admin
+# For local without auth: mongodb://localhost:27017
+MONGO_URI: str = os.getenv("MONGO_URI", "mongodb://acds:acds123@localhost:27017/acds?authSource=admin")
 DB_NAME: str = os.getenv("DB_NAME", "acds")
 
 # Collection names
@@ -176,3 +178,35 @@ ADMIN_EMAIL: str = os.getenv("ADMIN_EMAIL", "admin@acds.com")
 # Webhook for alerts (Slack, Teams, etc.)
 WEBHOOK_URL: Optional[str] = os.getenv("WEBHOOK_URL", None)
 
+
+# =============================================================================
+# SETTINGS CLASS FOR EASY ACCESS
+# =============================================================================
+class Settings:
+    """Settings class for easy attribute access."""
+    
+    # Database
+    MONGO_URI = MONGO_URI
+    DB_NAME = DB_NAME
+    
+    # Collections
+    COLLECTION_USERS = USER_COLLECTION
+    COLLECTION_THREATS = THREAT_COLLECTION
+    COLLECTION_EMAIL_SCANS = EMAIL_SCAN_COLLECTION
+    COLLECTION_FEEDBACK = FEEDBACK_COLLECTION
+    COLLECTION_ALERTS = ALERT_COLLECTION
+    COLLECTION_AUDIT_LOGS = AUDIT_LOG_COLLECTION
+    COLLECTION_REPORTS = REPORT_COLLECTION
+    
+    # JWT
+    JWT_SECRET_KEY = JWT_SECRET_KEY
+    JWT_ALGORITHM = JWT_ALGORITHM
+    JWT_EXPIRATION_HOURS = JWT_EXPIRATION_HOURS
+    
+    # Admin
+    DEFAULT_ADMIN_EMAIL = DEFAULT_ADMIN_EMAIL
+    DEFAULT_ADMIN_PASSWORD = DEFAULT_ADMIN_PASSWORD
+
+
+# Singleton instance
+settings = Settings()

@@ -8,26 +8,41 @@ import {
   ExclamationTriangleIcon,
   ShieldExclamationIcon,
   ClockIcon,
+  PlayIcon,
+  CubeIcon,
 } from "@heroicons/react/24/outline";
 
 const SystemActivityLogs = () => {
   const dashboardData = useDashboard() || {};
   const {
     testLogs = [],
+    activityLogs = [],
     refreshTestLogs = async () => {},
+    refreshActivityLogs = async () => {},
     testRunning = false,
+    demoRunning = false,
   } = dashboardData;
 
   const [filter, setFilter] = useState("all");
   const [refreshing, setRefreshing] = useState(false);
+  const [logSource, setLogSource] = useState("activity"); // "activity" or "test"
 
-  // Ensure testLogs is an array
+  // Ensure logs are arrays
   const safeTestLogs = Array.isArray(testLogs) ? testLogs : [];
+  const safeActivityLogs = Array.isArray(activityLogs) ? activityLogs : [];
+
+  // Use activity logs by default, test logs when viewing test data
+  const currentLogs =
+    logSource === "activity" ? safeActivityLogs : safeTestLogs;
 
   const handleRefresh = async () => {
     setRefreshing(true);
     try {
-      await refreshTestLogs();
+      if (logSource === "activity") {
+        await refreshActivityLogs();
+      } else {
+        await refreshTestLogs();
+      }
     } catch (error) {
       console.error("Failed to refresh logs:", error);
     } finally {
@@ -36,9 +51,10 @@ const SystemActivityLogs = () => {
   };
 
   // Filter logs based on selection
-  const filteredLogs = safeTestLogs.filter((log) => {
+  const filteredLogs = currentLogs.filter((log) => {
     if (filter === "all") return true;
-    return log && log.event === filter;
+    const eventType = log?.event || log?.action_type;
+    return eventType === filter;
   });
 
   const formatTime = (timestamp) => {
@@ -54,13 +70,23 @@ const SystemActivityLogs = () => {
   const getEventIcon = (event) => {
     switch (event) {
       case "email_scanned":
+      case "email_processed":
         return <DocumentTextIcon className="h-4 w-4 text-blue-400" />;
       case "threat_response":
-        return <ShieldExclamationIcon className="h-4 w-4 text-green-400" />;
+      case "threat_detected":
+        return <ShieldExclamationIcon className="h-4 w-4 text-red-400" />;
+      case "threat_resolved":
+        return <CheckCircleIcon className="h-4 w-4 text-green-400" />;
       case "error":
         return <ExclamationTriangleIcon className="h-4 w-4 text-red-400" />;
       case "test_completed":
+      case "batch_completed":
         return <CheckCircleIcon className="h-4 w-4 text-cyan-400" />;
+      case "demo_started":
+      case "demo_stopped":
+        return <PlayIcon className="h-4 w-4 text-purple-400" />;
+      case "batch_processed":
+        return <CubeIcon className="h-4 w-4 text-amber-400" />;
       default:
         return <DocumentTextIcon className="h-4 w-4 text-slate-400" />;
     }
@@ -69,24 +95,37 @@ const SystemActivityLogs = () => {
   const getEventColor = (event) => {
     switch (event) {
       case "email_scanned":
+      case "email_processed":
         return "border-l-blue-500";
       case "threat_response":
+      case "threat_detected":
+        return "border-l-red-500";
+      case "threat_resolved":
         return "border-l-green-500";
       case "error":
         return "border-l-red-500";
       case "test_completed":
+      case "batch_completed":
         return "border-l-cyan-500";
+      case "demo_started":
+      case "demo_stopped":
+        return "border-l-purple-500";
+      case "batch_processed":
+        return "border-l-amber-500";
       default:
         return "border-l-slate-500";
     }
   };
 
   return (
-    <div className="bg-slate-900/50 backdrop-blur-sm border border-slate-800 rounded-xl p-6">
+    <div className="relative bg-slate-900/50 backdrop-blur-sm border border-slate-800 hover:border-purple-500/20 rounded-xl p-6 transition-all duration-300 group overflow-hidden">
+      {/* Decorative accent */}
+      <div className="absolute top-0 left-0 w-full h-0.5 bg-gradient-to-r from-purple-500/50 via-indigo-500/30 to-transparent" />
+
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center space-x-3">
-          <div className="p-2 bg-purple-500/20 rounded-lg">
+          <div className="p-2 bg-gradient-to-br from-purple-500/30 to-indigo-500/20 rounded-lg border border-purple-500/20">
             <DocumentTextIcon className="h-6 w-6 text-purple-400" />
           </div>
           <div>
@@ -95,11 +134,40 @@ const SystemActivityLogs = () => {
             </h2>
             <p className="text-sm text-slate-400">
               Real-time detection and response logs
+              {demoRunning && (
+                <span className="ml-2 text-emerald-400 animate-pulse">
+                  • Demo Active
+                </span>
+              )}
             </p>
           </div>
         </div>
 
         <div className="flex items-center space-x-2">
+          {/* Log Source Toggle */}
+          <div className="flex bg-slate-800 rounded-lg p-0.5">
+            <button
+              onClick={() => setLogSource("activity")}
+              className={`px-2 py-1 text-xs rounded-md transition-colors ${
+                logSource === "activity"
+                  ? "bg-emerald-500/20 text-emerald-400"
+                  : "text-slate-400 hover:text-slate-300"
+              }`}
+            >
+              Activity
+            </button>
+            <button
+              onClick={() => setLogSource("test")}
+              className={`px-2 py-1 text-xs rounded-md transition-colors ${
+                logSource === "test"
+                  ? "bg-emerald-500/20 text-emerald-400"
+                  : "text-slate-400 hover:text-slate-300"
+              }`}
+            >
+              Tests
+            </button>
+          </div>
+
           {/* Filter */}
           <div className="flex items-center space-x-2">
             <FunnelIcon className="h-4 w-4 text-slate-500" />
@@ -110,9 +178,11 @@ const SystemActivityLogs = () => {
             >
               <option value="all">All Events</option>
               <option value="email_scanned">Scans</option>
-              <option value="threat_response">Responses</option>
+              <option value="email_processed">Processed</option>
+              <option value="threat_detected">Threats</option>
+              <option value="threat_resolved">Resolved</option>
+              <option value="batch_processed">Batches</option>
               <option value="error">Errors</option>
-              <option value="test_completed">Completed</option>
             </select>
           </div>
 
@@ -134,127 +204,237 @@ const SystemActivityLogs = () => {
       {/* Stats Bar */}
       <div className="flex items-center space-x-4 mb-4 text-xs">
         <span className="text-slate-500">
-          Total: <span className="text-slate-300">{safeTestLogs.length}</span>
+          Total: <span className="text-slate-300">{currentLogs.length}</span>
         </span>
         <span className="text-slate-600">|</span>
         <span className="text-blue-400">
-          Scans:{" "}
-          {safeTestLogs.filter((l) => l && l.event === "email_scanned").length}
-        </span>
-        <span className="text-green-400">
-          Responses:{" "}
+          Scanned:{" "}
           {
-            safeTestLogs.filter((l) => l && l.event === "threat_response")
-              .length
+            currentLogs.filter(
+              (l) =>
+                l &&
+                (l.event === "email_scanned" ||
+                  l.action_type === "email_processed")
+            ).length
           }
         </span>
         <span className="text-red-400">
-          Errors: {safeTestLogs.filter((l) => l && l.event === "error").length}
+          Threats:{" "}
+          {
+            currentLogs.filter(
+              (l) =>
+                l &&
+                (l.event === "threat_response" ||
+                  l.action_type === "threat_detected")
+            ).length
+          }
+        </span>
+        <span className="text-green-400">
+          Resolved:{" "}
+          {
+            currentLogs.filter((l) => l && l.action_type === "threat_resolved")
+              .length
+          }
         </span>
       </div>
 
       {/* Logs List */}
       {filteredLogs.length > 0 ? (
         <div className="space-y-2 max-h-[300px] overflow-y-auto custom-scrollbar">
-          {filteredLogs.slice(0, 30).map((log, idx) => (
-            <div
-              key={idx}
-              className={`flex items-start space-x-3 p-3 bg-slate-700/30 rounded-lg border-l-2 ${getEventColor(
-                log.event
-              )}`}
-            >
-              {/* Icon */}
-              <div className="mt-1">{getEventIcon(log.event)}</div>
+          {filteredLogs.slice(0, 30).map((log, idx) => {
+            const eventType = log.event || log.action_type || "unknown";
+            return (
+              <div
+                key={log._id || log.id || idx}
+                className={`flex items-start space-x-3 p-3 bg-slate-700/30 rounded-lg border-l-2 ${getEventColor(
+                  eventType
+                )}`}
+              >
+                {/* Icon */}
+                <div className="mt-1">{getEventIcon(eventType)}</div>
 
-              {/* Content */}
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-sm font-medium text-slate-200 capitalize">
-                    {log.event?.replace(/_/g, " ")}
-                  </span>
-                  <span className="text-xs text-slate-500 flex items-center">
-                    <ClockIcon className="h-3 w-3 mr-1" />
-                    {formatTime(log.timestamp)}
-                  </span>
-                </div>
-
-                {/* Event specific details */}
-                {log.event === "email_scanned" && (
-                  <div className="text-xs text-slate-400">
-                    <span className="truncate block max-w-[300px]">
-                      {log.subject || "No subject"}
+                {/* Content */}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-sm font-medium text-slate-200 capitalize">
+                      {eventType.replace(/_/g, " ")}
                     </span>
-                    <div className="flex items-center space-x-3 mt-1">
-                      <span
-                        className={
-                          log.is_phishing_detected
-                            ? "text-red-400"
-                            : "text-green-400"
-                        }
-                      >
-                        {log.is_phishing_detected ? "⚠ Phishing" : "✓ Safe"}
+                    <span className="text-xs text-slate-500 flex items-center">
+                      <ClockIcon className="h-3 w-3 mr-1" />
+                      {formatTime(log.timestamp || log.created_at)}
+                    </span>
+                  </div>
+
+                  {/* Event specific details */}
+                  {(eventType === "email_scanned" ||
+                    eventType === "email_processed") && (
+                    <div className="text-xs text-slate-400">
+                      <span className="truncate block max-w-[300px]">
+                        {log.subject || log.details?.subject || "No subject"}
                       </span>
-                      <span>
-                        Confidence: {Math.round((log.confidence || 0) * 100)}%
-                      </span>
-                      {log.correct_prediction !== undefined && (
+                      <div className="flex items-center space-x-3 mt-1">
                         <span
                           className={
-                            log.correct_prediction
-                              ? "text-green-400"
-                              : "text-red-400"
+                            log.is_phishing_detected || log.details?.is_phishing
+                              ? "text-red-400"
+                              : "text-green-400"
                           }
                         >
-                          {log.correct_prediction ? "Correct" : "Incorrect"}
+                          {log.is_phishing_detected || log.details?.is_phishing
+                            ? "⚠ Phishing"
+                            : "✓ Safe"}
+                        </span>
+                        <span>
+                          Confidence:{" "}
+                          {Math.round(
+                            (log.confidence || log.details?.confidence || 0) *
+                              100
+                          )}
+                          %
+                        </span>
+                        {log.correct_prediction !== undefined && (
+                          <span
+                            className={
+                              log.correct_prediction
+                                ? "text-green-400"
+                                : "text-red-400"
+                            }
+                          >
+                            {log.correct_prediction ? "Correct" : "Incorrect"}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {(eventType === "threat_response" ||
+                    eventType === "threat_detected") && (
+                    <div className="text-xs text-slate-400">
+                      <span>
+                        Threat ID:{" "}
+                        {log.threat_id || log.details?.threat_id || "Unknown"}
+                      </span>
+                      <div className="flex items-center space-x-2 mt-1">
+                        <span
+                          className={`px-1.5 py-0.5 rounded ${
+                            log.details?.severity === "HIGH" ||
+                            log.details?.severity === "CRITICAL"
+                              ? "bg-red-500/20 text-red-400"
+                              : "bg-amber-500/20 text-amber-400"
+                          }`}
+                        >
+                          {log.details?.severity || "MEDIUM"}
+                        </span>
+                      </div>
+                      {(log.actions || log.details?.actions) && (
+                        <div className="flex flex-wrap gap-1 mt-1">
+                          {(log.actions || log.details?.actions || []).map(
+                            (action, i) => (
+                              <span
+                                key={i}
+                                className="px-1.5 py-0.5 bg-green-500/20 text-green-400 rounded"
+                              >
+                                {typeof action === "string"
+                                  ? action.replace(/_/g, " ")
+                                  : action}
+                              </span>
+                            )
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {eventType === "threat_resolved" && (
+                    <div className="text-xs text-slate-400">
+                      <span>Threat resolved automatically</span>
+                      {log.details?.actions && (
+                        <div className="flex flex-wrap gap-1 mt-1">
+                          {log.details.actions.map((action, i) => (
+                            <span
+                              key={i}
+                              className="px-1.5 py-0.5 bg-green-500/20 text-green-400 rounded"
+                            >
+                              {action}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {eventType === "batch_processed" && (
+                    <div className="text-xs text-slate-400">
+                      <span>
+                        Processed: {log.details?.total_processed || 0} |
+                        Phishing: {log.details?.phishing_count || 0} | Safe:{" "}
+                        {log.details?.safe_count || 0}
+                      </span>
+                    </div>
+                  )}
+
+                  {eventType === "error" && (
+                    <p className="text-xs text-red-400">
+                      {log.error || log.details?.error || "Unknown error"}
+                    </p>
+                  )}
+
+                  {(eventType === "test_completed" ||
+                    eventType === "batch_completed") && (
+                    <div className="text-xs text-slate-400">
+                      <span>
+                        Processed:{" "}
+                        {log.total_processed ||
+                          log.details?.total_processed ||
+                          0}{" "}
+                        | Accuracy:{" "}
+                        {Math.round(
+                          (log.accuracy || log.details?.accuracy || 0) * 100
+                        )}
+                        % | Threats:{" "}
+                        {log.threats_found || log.details?.threats_found || 0}
+                      </span>
+                    </div>
+                  )}
+
+                  {(eventType === "demo_started" ||
+                    eventType === "demo_stopped") && (
+                    <div className="text-xs text-slate-400">
+                      <span>
+                        {eventType === "demo_started"
+                          ? "Demo mode activated"
+                          : "Demo mode stopped"}
+                      </span>
+                      {log.details?.interval && (
+                        <span className="ml-2">
+                          Interval: {log.details.interval}s
                         </span>
                       )}
                     </div>
-                  </div>
-                )}
+                  )}
 
-                {log.event === "threat_response" && (
-                  <div className="text-xs text-slate-400">
-                    <span>Threat: {log.threat_id}</span>
-                    <div className="flex flex-wrap gap-1 mt-1">
-                      {(log.actions || []).map((action, i) => (
-                        <span
-                          key={i}
-                          className="px-1.5 py-0.5 bg-green-500/20 text-green-400 rounded"
-                        >
-                          {action.replace(/_/g, " ")}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {log.event === "error" && (
-                  <p className="text-xs text-red-400">{log.error}</p>
-                )}
-
-                {log.event === "test_completed" && (
-                  <div className="text-xs text-slate-400">
-                    <span>
-                      Processed: {log.total_processed} | Accuracy:{" "}
-                      {Math.round((log.accuracy || 0) * 100)}% | Threats:{" "}
-                      {log.threats_found}
+                  {/* Session/Source ID */}
+                  {(log.session_id || log.source) && (
+                    <span className="text-xs text-slate-600 mt-1 block">
+                      {log.session_id
+                        ? `Session: ${log.session_id}`
+                        : `Source: ${log.source}`}
                     </span>
-                  </div>
-                )}
-
-                {/* Session ID */}
-                <span className="text-xs text-slate-600 mt-1 block">
-                  Session: {log.session_id}
-                </span>
+                  )}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       ) : (
         <div className="text-center py-8 text-slate-500">
           <DocumentTextIcon className="h-10 w-10 mx-auto mb-2 opacity-50" />
           <p className="text-sm">No activity logs yet</p>
-          <p className="text-xs mt-1">Logs will appear when tests are run</p>
+          <p className="text-xs mt-1">
+            {logSource === "activity"
+              ? "Start demo mode or run batch to see activity logs"
+              : "Logs will appear when tests are run"}
+          </p>
         </div>
       )}
     </div>

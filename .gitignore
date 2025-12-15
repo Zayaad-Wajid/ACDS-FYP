@@ -210,6 +210,9 @@ __marimo__/
 backend/ml/models/*.pkl
 backend/ml/models/*.json
 
+# Generated Reports
+reports/*.pdf
+
 # Temporary quickstart script
 run_quickstart.py
 

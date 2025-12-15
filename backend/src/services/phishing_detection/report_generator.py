@@ -10,8 +10,10 @@ from reportlab.lib.units import inch
 from reportlab.lib.pagesizes import letter
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_JUSTIFY
+from xml.sax.saxutils import escape # Replaced reportlab.lib.utils.escape with xml.sax.saxutils.escape
 
-from .models import Incident
+from .models import Incident, Email # Added Email import
+from .database import IncidentDatabase # Added IncidentDatabase import
 
 logger = logging.getLogger(__name__)
 
@@ -19,10 +21,11 @@ class ReportGenerator:
     """
     Generates summary reports for phishing incidents.
     """
-    def __init__(self):
+    def __init__(self, incident_db: IncidentDatabase): # Modified to accept incident_db
+        self.incident_db = incident_db
         logger.info("ReportGenerator initialized.")
 
-    def generate_incident_report(self, incident: Incident, explanation: Dict[str, Any]) -> str:
+    def generate_incident_report(self, incident: Incident, email: Email, explanation: Dict[str, Any]) -> str:
         """
         Generates a human-readable summary report for a given incident.
         
@@ -39,6 +42,9 @@ class ReportGenerator:
         report_lines.append(f"Detected On: {incident.detection_timestamp.strftime('%Y-%m-%d %H:%M:%S UTC')}")
         report_lines.append(f"Status: {incident.status.value.replace('_', ' ').title()}")
         report_lines.append(f"Associated Email ID: {incident.email_id}")
+        report_lines.append(f"Sender: {email.sender}")
+        report_lines.append(f"Recipients: {', '.join(email.recipients)}")
+        report_lines.append(f"Subject: {email.subject}")
         report_lines.append(f"Detection Agent: {incident.detection_agent_id}")
         report_lines.append(f"Assigned Analyst: {incident.assigned_analyst or 'Unassigned'}")
         report_lines.append("\n--- Detection Details ---")
@@ -66,7 +72,7 @@ class ReportGenerator:
         logger.info(f"Generated report for incident {incident.id}.")
         return "\n".join(report_lines)
 
-    def generate_incident_report_pdf(self, incident: Incident, explanation: Dict[str, Any], output_path: str) -> None:
+    async def generate_incident_report_pdf(self, incident: Incident, email: Email, explanation: Dict[str, Any], output_path: str) -> None:
         """
         Generates a comprehensive, human-readable PDF report for a phishing incident.
         
@@ -161,11 +167,10 @@ class ReportGenerator:
         # ==================== EMAIL DETAILS ====================
         story.append(Paragraph("EMAIL INFORMATION", header_style))
         
-        email_details = incident.details or {}
         email_data = [
-            ["From:", email_details.get('sender', 'N/A')],
-            ["To:", ', '.join(email_details.get('recipients', [])) if email_details.get('recipients') else 'N/A'],
-            ["Subject:", email_details.get('subject', 'N/A')],
+            ["From:", email.sender],
+            ["To:", ', '.join(email.recipients)],
+            ["Subject:", email.subject],
         ]
         
         email_table = Table(email_data, colWidths=[1.5*inch, 5*inch])
@@ -184,19 +189,17 @@ class ReportGenerator:
         story.append(email_table)
         
         # Email body preview
-        email_body = email_details.get('body', 'N/A')
-        if email_body and email_body != 'N/A':
+        if email.body:
             story.append(Spacer(1, 0.15 * inch))
             story.append(Paragraph("Email Content Preview:", subheader_style))
-            body_preview = email_body[:500] + "..." if len(email_body) > 500 else email_body
-            story.append(Paragraph(f"<i>{body_preview}</i>", 
+            body_preview = email.body[:500] + "..." if len(email.body) > 500 else email.body
+            story.append(Paragraph(f"<i>{escape(body_preview)}</i>", 
                                   ParagraphStyle('bodytext', parent=normal_style, 
                                                textColor=colors.HexColor('#34495e'),
                                                backColor=colors.HexColor('#f8f9fa'),
                                                borderPadding=10)))
         
-        story.append(Spacer(1, 0.3 * inch))
-        
+        story.append(Spacer(1, 0.3 * inch))        
         # ==================== DETECTION ANALYSIS ====================
         story.append(Paragraph("DETECTION ANALYSIS", header_style))
         
@@ -338,6 +341,6 @@ class ReportGenerator:
             logger.error(f"Error generating PDF report for incident {incident.id}: {e}")
             raise
 
-def get_report_generator() -> ReportGenerator:
+async def get_report_generator(incident_db: IncidentDatabase) -> ReportGenerator:
     """Returns a singleton-like instance of the ReportGenerator."""
-    return ReportGenerator()
+    return ReportGenerator(incident_db)

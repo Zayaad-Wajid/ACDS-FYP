@@ -53,7 +53,7 @@ As a SOC Analyst, I need the system to automatically process incoming emails, de
 ### Key Entities
 
 -   **Email**: Raw email content, headers, sender, recipients, subject, body, attachments.
--   **Incident**: Unique ID (UUID), status, detection timestamp, detection agent ID, explanation details (confidence score, matched indicators), related emails, timeline of events, assigned analyst.
+-   **Incident**: Unique ID (UUID), status (States: New, Detected, Investigating, Remediated, Closed, False Positive), detection timestamp, detection agent ID, explanation details (confidence score, matched indicators), related emails, timeline of events, assigned analyst.
 
 ## Success Criteria
 
@@ -69,6 +69,24 @@ As a SOC Analyst, I need the system to automatically process incoming emails, de
 ## Out of Scope for MVP
 - Real-time email ingestion
 
+## Data Management
+### Data Retention
+- Incident and Email Data: Retain for 1 year.
+
+## Security
+- API Access: API Key Authentication.
+- Data Encryption: At rest (Database) and in transit (API).
+- Access Control: Role-based access control (RBAC) to be defined in a later phase.
+
+## Observability
+- Logging: Structured logging for critical operations and errors.
+- Metrics: Expose basic application health metrics (e.g., uptime, request counts, error rates).
+- Tracing: To be considered in a later phase.
+
+## Error Handling
+- Unrecoverable Errors: Log the error, update incident status to "Failed" or "Error", and notify administrator.
+- Retries: No automatic retries for unrecoverable errors.
+
 ## Clarifications
 ### Session 2025-12-14
 - Q: What specific details should the "explanation details" provided by the Explainability Agent include? → A: Confidence score + matched indicators
@@ -76,6 +94,11 @@ As a SOC Analyst, I need the system to automatically process incoming emails, de
 - Q: What are the primary security and privacy concerns for handling email input and incident data? → A: Data is preprocessing and normalization (Further clarification needed on security/privacy implications)
 - Q: What are explicit out-of-scope functionalities for the MVP? → A: Real-time email ingestion
 - Q: How are incident unique IDs generated? → A: UUID
+- Q: What are the definitive states an Incident can have, and what are the valid transitions between these states? → A: Define explicit states (e.g., New, Detected, Investigating, Remediated, Closed, False Positive) and their valid transitions.
+- Q: What is the desired data retention policy for `Incident` and `Email` data? → A: Retain all incident and email data for 1 year.
+- Q: What specific security measures are required for the backend API and database? → A: Implement API key authentication for backend API access and ensure data encryption at rest (DB) and in transit (API). Role-based access control (RBAC) to be defined in a later phase.
+- Q: What are the basic logging, metrics, and tracing requirements for the system to ensure operational visibility? → A: Implement structured logging for all critical operations and errors, and expose basic application health metrics (e.g., uptime, request counts, error rates). Tracing to be considered in a later phase.
+- Q: What is the expected behavior and error handling strategy when critical components (e.g., Detection Agent, Explainability Agent, Report Generator) encounter unrecoverable errors during processing? → A: Log the error, update the incident status to "Failed" or "Error", and notify an administrator. No automatic retries for unrecoverable errors.
 
 
 

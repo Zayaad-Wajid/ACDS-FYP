@@ -11,14 +11,12 @@ import sys
 sys.path.append(os.path.abspath('./backend/src/services')) 
 sys.path.append(os.path.abspath('./backend')) # Added for config.settings access
 
-from backend.src.services.phishing_detection.models import Email, IncidentStatus
-from backend.src.services.phishing_detection.database import incident_db, get_incident_db
+from backend.src.services.phishing_detection.database import incident_db
 from backend.src.services.phishing_detection.data_loader import get_email_data_loader
-from backend.src.services.phishing_detection.detection_agent import get_detection_agent
-from backend.src.services.phishing_detection.incident_manager import get_incident_manager
-from backend.src.services.phishing_detection.explainability_agent import get_explainability_agent
-from backend.src.services.phishing_detection.orchestration_trigger import get_orchestration_trigger
+from backend.src.services.phishing_detection.orchestrator_agent import get_orchestrator_agent # Use the new orchestrator
+from backend.src.services.phishing_detection.explainability_agent import get_explainability_agent # Still needed for explanation for report
 from backend.src.services.phishing_detection.report_generator import get_report_generator
+
 
 async def run_phishing_detection_workflow():
     print("--- Starting Phishing Detection Workflow Example ---")
@@ -34,69 +32,35 @@ async def run_phishing_detection_workflow():
     # Connect to MongoDB
     await incident_db.connect()
 
-    # Initialize agents and managers
-    data_loader = get_email_data_loader(
-        dataset_name="zefang-liu/phishing-email-dataset", # Correct Hugging Face dataset
-        split="train", 
-        raw_text_column="Email Text"
-    )
-    detection_agent = get_detection_agent(use_ml=False) # Start with rule-based
-    incident_manager = await get_incident_manager()
-    explainability_agent = get_explainability_agent()
-    orchestration_trigger = get_orchestration_trigger()
-    report_generator = get_report_generator()
+    # Initialize orchestrator
+    orchestrator = await get_orchestrator_agent(incident_db)
 
     # 1. Load Emails
     print("\n1. Loading emails from Hugging Face dataset...")
+    data_loader = get_email_data_loader(
+        dataset_name="zefang-liu/phishing-email-dataset", # Correct Hugging Face dataset
+        split="train", 
+        raw_text_column="Email Text" # Corrected column name
+    )
     emails_to_process = data_loader.load_emails_from_hf_dataset()
     if not emails_to_process:
         print("No emails loaded from dataset. Exiting.")
         await incident_db.disconnect()
         return
 
+    print(f"Loaded {len(emails_to_process)} emails. Starting workflow for each.")
+    
     for email in emails_to_process:
         print(f"\nProcessing Email ID: {email.id}, Subject: {email.subject[:50]}...")
+        
+        # Execute the full workflow for this email using the OrchestratorAgent
+        incident = await orchestrator.process_email_workflow(email)
 
-        # 2. Detect Phishing
-        detection_results = detection_agent.detect_phishing(email)
-        print(f"   Detection Result: Is Phishing? {detection_results['is_phishing']}, Confidence: {detection_results['confidence_score']:.2f}")
-
-        if detection_results["is_phishing"]:
-            # 3. Create Incident
-            incident = await incident_manager.create_new_incident(email, detection_results)
-            if incident:
-                print(f"   Incident created with ID: {incident.id}")
-
-                # 4. Explain Phishing
-                explanation = explainability_agent.generate_explanation(incident)
-                print(f"   Explanation: {explanation['summary']}")
-                for detail in explanation['details']:
-                    print(f"      {detail}")
-
-                # 5. Trigger Orchestration
-                orchestration_success = await orchestration_trigger.trigger_orchestration(incident)
-                print(f"   Orchestration Triggered: {orchestration_success}")
-
-                # 6. Update Incident + Timeline
-                updated_incident = await incident_manager.update_incident_status(incident.id, IncidentStatus.CONFIRMED_PHISHING, "System_Bot")
-                if updated_incident:
-                    print(f"   Incident {updated_incident.id} status updated to {updated_incident.status.value}")
-                    await incident_manager.add_timeline_entry(updated_incident.id, "Automated response triggered", {"orchestration_status": orchestration_success})
-
-                # 7. Generate Report
-                final_incident = await incident_db.get_incident(str(incident.id))
-                report = report_generator.generate_incident_report(final_incident, explanation)
-                print(f"\n--- Incident Report for {final_incident.id} ---")
-                print(report)
-
-                # Generate PDF Report
-                pdf_output_path = f"reports/incident_report_{final_incident.id}.pdf"
-                report_generator.generate_incident_report_pdf(final_incident, explanation, pdf_output_path)
-                print(f"   PDF report saved to: {pdf_output_path}")
-            else:
-                print(f"   Failed to create incident for email {email.id}")
+        if incident:
+            print(f"   Workflow completed for Incident ID: {incident.id}")
+            print(f"   PDF report saved to: reports/incident_report_{incident.id}.pdf")
         else:
-            print(f"   Email {email.id} is not detected as phishing.")
+            print(f"   Workflow did not result in an incident for email {email.id}.")
     
     # Disconnect from MongoDB
     await incident_db.disconnect()

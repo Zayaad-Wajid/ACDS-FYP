@@ -1,14 +1,9 @@
----
+# Tasks: Phishing Detection Module MVP
 
-description: "Task list template for feature implementation"
----
+**Input**: Design documents from `/specs/phishing-detection/`
+**Prerequisites**: plan.md (required), spec.md (required for user stories)
 
-# Tasks: Phishing Detection Module
-
-**Input**: Design documents from `specs/phishing-detection/`
-**Prerequisites**: plan.md (required), spec.md (required for user stories), research.md, data-model.md (will be generated), contracts/ (will be generated)
-
-**Tests**: Not explicitly requested for TDD approach, but implementation tasks include testing.
+**Tests**: This task list does not explicitly include test generation tasks. Test generation tasks can be added in a separate phase or integrated as part of the implementation tasks if a TDD approach is desired.
 
 **Organization**: Tasks are grouped by user story to enable independent implementation and testing of each story.
 
@@ -20,71 +15,68 @@ description: "Task list template for feature implementation"
 
 ## Path Conventions
 
-- **Web app**: `backend/src/`, `frontend/src/`
-- Paths shown below assume `backend/src/services/phishing_detection/` for module-specific code.
+- **Web app**: `backend/src/`, `frontend/src/` (adjusting for backend focus)
 
-## Phase 1: Initial Setup
+## Phase 1: Setup (Project Initialization & Environment)
 
-**Purpose**: Basic project initialization for the module.
+**Purpose**: Ensure the project environment is configured and basic dependencies are installed.
 
-- [X] T001 Create the module directory `backend/src/services/phishing_detection/`.
-
----
-
-## Phase 0: Research & Planning (Blocking Foundational Work)
-
-**Purpose**: Resolving technical unknowns from `plan.md` and clarifying constitution principles.
-
-- [X] T002 Research Language/Version for backend services, update `specs/phishing-detection/plan.md`.
-- [X] T003 Research Primary Dependencies for API, ML, and email parsing, update `specs/phishing-detection/plan.md`.
-- [X] T004 Research Storage technology for incident data, update `specs/phishing-detection/plan.md`.
-- [X] T005 Research Testing framework and methodology, update `specs/phishing-detection/plan.md`.
-- [X] T006 Research Target Platform for deployment, update `specs/phishing-detection/plan.md`.
-- [X] T007 Research Performance Goals for the system components, update `specs/phishing-detection/plan.md`.
-- [X] T008 Research Constraints (operational, resource) and Scale/Scope (data volume, concurrency, retention), update `specs/phishing-detection/plan.md`.
-- [X] T009 Research Constitution - Clarify "AI usage must support deterministic fallback" (Principle II), update `.specify/memory/constitution.md`.
-- [X] T010 Research Constitution - Confirm "Agents must request clarification when ambiguous" (Principle V), update `.specify/memory/constitution.md`.
-- [X] T011 Update `specs/phishing-detection/plan.md` with findings from T002-T010.
+- [ ] T001 Install Python 3.11 and create a virtual environment (if not already done).
+- [ ] T002 Install core Python dependencies from `requirements.txt`.
+- [ ] T003 Configure `.env` for MongoDB connection (add `MONGO_URI`, `DB_NAME`).
+- [ ] T004 Verify MongoDB connectivity (e.g., by running a simple connection script in `backend/tests/`).
 
 ---
 
-## Phase 2: Core Data & Infrastructure Setup
+## Phase 2: Foundational (Core Infrastructure & Shared Components)
 
-**Purpose**: Establish core data models and basic infrastructure required for the Phishing Detection module.
+**Purpose**: Implement core data models, database connection, and utility functions that are prerequisites for all user stories.
 
-- [X] T012 [P] Create Email data model in `backend/src/services/phishing_detection/models.py`.
-- [X] T013 [P] Create Incident data model (Unique ID as UUID) in `backend/src/services/phishing_detection/models.py`.
-- [X] T014 Set up database connection and basic CRUD operations for Incidents in `backend/src/services/phishing_detection/database.py`. (Depends on T004 research)
-- [X] T015 Implement mechanism to import email datasets from Hugging Face (FR-001) in `backend/src/services/phishing_detection/data_loader.py`.
+**⚠️ CRITICAL**: No user story work can begin until this phase is complete
+
+- [ ] T005 [P] Define Pydantic models for `Email` and `Incident` in `backend/src/services/phishing_detection/models.py`.
+- [ ] T006 Implement asynchronous MongoDB client and database operations (e.g., `IncidentDatabase` class) in `backend/src/services/phishing_detection/database.py`.
+- [ ] T007 Implement `EmailDataLoader` for loading emails from Hugging Face datasets in `backend/src/services/phishing_detection/data_loader.py`.
+
+**Checkpoint**: Foundation ready - user story implementation can now begin in parallel
 
 ---
 
 ## Phase 3: User Story 1 - End-to-End Phishing Incident Handling (Priority: P1) 🎯 MVP
 
-**Goal**: Implement the full workflow from email input processing to report generation for phishing incidents.
+**Goal**: Implement the full workflow for detecting phishing, creating incidents, explaining, triggering orchestration, updating timelines, and generating reports.
 
-**Independent Test**: An email with known phishing characteristics can be submitted to the system, and a corresponding incident with an explanation, updated timeline, and generated report should be available for review.
+**Independent Test**: An email with known phishing characteristics can be submitted to the system via `run_quickstart.py` (or a test API endpoint), and a corresponding incident with an explanation, updated timeline, and generated PDF report should be available for review in the database and file system.
 
 ### Implementation for User Story 1
 
-- [X] T016 [P] [US1] Implement core phishing indicator evaluation logic (rule-based or placeholder ML) in `backend/src/services/phishing_detection/detection_agent.py`. (FR-002)
-- [X] T017 [US1] Implement logic to create incident in DB upon detection in `backend/src/services/phishing_detection/incident_manager.py`. (FR-003, depends on T013, T015)
-- [X] T018 [P] [US1] Implement logic to provide confidence score and matched indicators in `backend/src/services/phishing_detection/explainability_agent.py`. (FR-004, depends on T015)
-- [X] T019 [US1] Implement mechanism to trigger an orchestration process (placeholder for external system integration) in `backend/src/services/phishing_detection/orchestration_trigger.py`. (FR-005)
-- [X] T020 [US1] Implement logic to update incident details and timeline in DB in `backend/src/services/phishing_detection/incident_manager.py`. (FR-006, depends on T013, T016, T018)
-- [X] T021 [P] [US1] Implement report generation logic, summarizing incident details, detection, explanation, and response actions in `backend/src/services/phishing_detection/report_generator.py`. (FR-007)
+- [ ] T008 [US1] Implement `DetectionAgent` with rule-based detection logic in `backend/src/services/phishing_detection/detection_agent.py`.
+- [ ] T009 [US1] Implement `IncidentManager` for creating, updating, and retrieving incidents in `backend/src/services/phishing_detection/incident_manager.py`.
+- [ ] T010 [US1] Implement `ExplainabilityAgent` for generating explanations in `backend/src/services/phishing_detection/explainability_agent.py`.
+- [ ] T011 [P] [US1] Create `ResponseAgent` (placeholder) in `backend/src/services/phishing_detection/response_agent.py`.
+- [ ] T012 [US1] Implement `ReportGenerator` for text and PDF reports in `backend/src/services/phishing_detection/report_generator.py`.
+- [ ] T013 [US1] Implement `OrchestratorAgent` to coordinate the workflow (integrating Detection, IncidentManager, Explainability, Response, ReportGenerator) in `backend/src/services/phishing_detection/orchestrator_agent.py`.
+- [ ] T014 [US1] Implement FastAPI application structure and main router in `backend/main.py` (or `backend/api/main.py`).
+- [ ] T015 [US1] Implement API endpoint `POST /api/v1/phishing-detection/process-emails` in `backend/main.py` (or `backend/api/main.py`).
+- [ ] T016 [US1] Implement API endpoint `GET /api/v1/phishing-detection/incidents/{incident_id}` in `backend/main.py` (or `backend/api/main.py`).
+- [ ] T017 [US1] Implement API endpoint `GET /api/v1/phishing-detection/incidents` in `backend/main.py` (or `backend/api/main.py`).
+- [ ] T018 [US1] Implement API endpoint `GET /api/v1/phishing-detection/incidents/{incident_id}/report/pdf` in `backend/main.py` (or `backend/api/main.py`).
+- [ ] T019 [US1] **Integration Test**: Ensure `run_quickstart.py` successfully executes the end-to-end workflow and generates reports.
+
+**Checkpoint**: At this point, User Story 1 should be fully functional and testable independently
 
 ---
 
 ## Final Phase: Polish & Cross-Cutting Concerns
 
-**Purpose**: Improve module robustness, testability, and maintainability.
+**Purpose**: Address non-functional requirements and overall system quality.
 
-- [X] T022 Implement robust error handling for all agents and data operations.
-- [X] T023 [P] Implement logging and monitoring for the module's operations.
-- [X] T024 Create unit tests for `models.py`, `data_loader.py`, `detection_agent.py`, `explainability_agent.py`, `incident_manager.py`, `report_generator.py` in `backend/tests/phishing_detection/unit/`.
-- [X] T025 Create integration tests for the end-to-end workflow in `backend/tests/phishing_detection/integration/`.
-- [ ] T026 Update `quickstart.md` for this module.
+- [ ] T020 [P] Implement API Key authentication middleware/logic for FastAPI in `backend/src/middleware/auth.py` (or integrated into API routes).
+- [ ] T021 Configure structured logging across the application (e.g., in `backend/main.py` and agent modules).
+- [ ] T022 Implement metrics exposure for basic health checks (e.g., Uvicorn server metrics or custom FastAPI endpoints).
+- [ ] T023 Refine error handling across API endpoints and agent modules, ensuring proper logging and incident status updates for unrecoverable errors.
+- [ ] T024 Update `README.md` with setup, API usage, and deployment instructions.
+- [ ] T025 Code cleanup and refactoring across the codebase.
 
 ---
 
@@ -92,29 +84,47 @@ description: "Task list template for feature implementation"
 
 ### Phase Dependencies
 
--   **Initial Setup (Phase 1)**: No dependencies - can start immediately.
--   **Research & Planning (Phase 0)**: No dependencies - can start immediately. BLOCKS subsequent phases until research is complete and `plan.md` is updated (T011).
--   **Core Data & Infrastructure Setup (Phase 2)**: Depends on Phase 0 completion (specifically T011).
--   **User Story 1 (Phase 3)**: Depends on Phase 2 completion.
--   **Polish (Final Phase)**: Depends on Phase 3 completion.
+- **Setup (Phase 1)**: No dependencies - can start immediately
+- **Foundational (Phase 2)**: Depends on Setup completion - BLOCKS all user stories
+- **User Stories (Phase 3)**: Depends on Foundational phase completion
+- **Polish (Final Phase)**: Depends on all desired user stories being complete
 
 ### User Story Dependencies
 
--   **User Story 1 (P1)**: No explicit dependencies on other user stories.
+- **User Story 1 (P1)**: Can start after Foundational (Phase 2) - No dependencies on other stories
 
 ### Within Each User Story
 
--   Models must be created before services that use them.
--   Database setup must precede operations involving the database.
--   Detection logic must be in place before incident creation or explanation.
+- Models (`models.py`) before database (`database.py`) and data loader (`data_loader.py`).
+- Agents (`detection_agent.py`, `incident_manager.py`, `explainability_agent.py`, `response_agent.py`, `report_generator.py`) can be developed in parallel after foundational elements.
+- `OrchestratorAgent` depends on all other agents.
+- API Endpoints depend on `OrchestratorAgent` and `IncidentManager`.
 
 ### Parallel Opportunities
 
--   Tasks marked with **[P]** can be executed in parallel.
--   Within Phase 0, multiple research tasks can be performed concurrently.
--   Within Phase 2, model creation (T012, T013) can be parallel.
--   Within Phase 3, detection logic (T016), explainability (T018), and report generation (T021) can be parallel if their immediate dependencies are met.
--   Within the Final Phase, logging (T023) can be parallel with unit testing (T024) and integration testing (T025).
+- All Setup tasks T005 can run in parallel.
+- Within User Story 1, tasks T008-T012 (individual agents) can be developed in parallel after foundational elements are complete.
+- Tasks T015-T018 (API endpoints) can be developed in parallel.
+- All tasks in the "Polish & Cross-Cutting Concerns" phase marked [P] can run in parallel.
+
+---
+
+## Parallel Example: User Story 1
+
+```bash
+# Individual agent implementations (can be done by different developers concurrently):
+Task: "Implement DetectionAgent in backend/src/services/phishing_detection/detection_agent.py"
+Task: "Implement IncidentManager in backend/src/services/phishing_detection/incident_manager.py"
+Task: "Implement ExplainabilityAgent in backend/src/services/phishing_detection/explainability_agent.py"
+Task: "Create ResponseAgent (placeholder) in backend/src/services/phishing_detection/response_agent.py"
+Task: "Implement ReportGenerator in backend/src/services/phishing_detection/report_generator.py"
+
+# API Endpoints (can be done by different developers concurrently once agents are integrated into Orchestrator):
+Task: "Implement API endpoint POST /api/v1/phishing-detection/process-emails in backend/main.py"
+Task: "Implement API endpoint GET /api/v1/phishing-detection/incidents/{incident_id} in backend/main.py"
+Task: "Implement API endpoint GET /api/v1/phishing-detection/incidents in backend/main.py"
+Task: "Implement API endpoint GET /api/v1/phishing-detection/incidents/{incident_id}/report/pdf in backend/main.py"
+```
 
 ---
 
@@ -122,33 +132,37 @@ description: "Task list template for feature implementation"
 
 ### MVP First (User Story 1 Only)
 
-1.  Complete Phase 1: Initial Setup.
-2.  Complete Phase 0: Research & Planning.
-3.  Complete Phase 2: Core Data & Infrastructure Setup.
-4.  Complete Phase 3: User Story 1.
-5.  **STOP and VALIDATE**: Test User Story 1 independently.
-6.  Deploy/demo if ready.
+1. Complete Phase 1: Setup
+2. Complete Phase 2: Foundational (CRITICAL - blocks all stories)
+3. Complete Phase 3: User Story 1
+4. **STOP and VALIDATE**: Test User Story 1 independently using `run_quickstart.py` and API calls.
+5. Deploy/demo if ready
 
 ### Incremental Delivery
 
-1.  Complete Phase 1: Initial Setup + Phase 0: Research & Planning + Phase 2: Core Data & Infrastructure Setup → Foundation ready.
-2.  Add User Story 1 → Test independently → Deploy/Demo (MVP!).
-3.  Add additional user stories (if any) iteratively.
+1. Complete Setup + Foundational → Foundation ready
+2. Add User Story 1 → Test independently → Deploy/Demo (MVP!)
+3. Proceed to Polish & Cross-Cutting Concerns.
 
 ### Parallel Team Strategy
 
 With multiple developers:
 
-1.  Team completes Phase 1: Initial Setup + Phase 0: Research & Planning + Phase 2: Core Data & Infrastructure Setup together.
-2.  Once Foundational is done, developers can be assigned to different tasks within User Story 1 or subsequent stories.
+1. Team completes Setup + Foundational together.
+2. Once Foundational is done:
+   - Developer A: DetectionAgent, IncidentManager
+   - Developer B: ExplainabilityAgent, ReportGenerator
+   - Developer C: OrchestratorAgent, FastAPI endpoints
+3. Integrate and test.
 
 ---
 
 ## Notes
 
--   **[P]** tasks = different files, no dependencies.
--   **[Story]** label maps task to specific user story for traceability.
--   Each user story should be independently completable and testable.
--   Commit after each task or logical group.
--   Stop at any checkpoint to validate story independently.
--   Avoid: vague tasks, same file conflicts, cross-story dependencies that break independence.
+- [P] tasks = different files, no dependencies
+- [Story] label maps task to specific user story for traceability
+- Each user story should be independently completable and testable
+- Verify tests fail before implementing (if tests are added)
+- Commit after each task or logical group
+- Stop at any checkpoint to validate story independently
+- Avoid: vague tasks, same file conflicts, cross-story dependencies that break independence

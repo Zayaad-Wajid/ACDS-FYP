@@ -5,7 +5,14 @@ Wraps the ML model for phishing email detection with full API support.
 
 Version: 2.0.0 - TF-IDF + Logistic Regression Architecture
 """
-
+# Suppress sklearn version warnings
+import warnings
+warnings.filterwarnings("ignore", category=UserWarning, module="sklearn")
+try:
+    from sklearn.exceptions import InconsistentVersionWarning
+    warnings.filterwarnings("ignore", category=InconsistentVersionWarning)
+except ImportError:
+    pass
 import os
 import json
 import joblib
@@ -86,16 +93,25 @@ class PhishingDetectionService:
     
     def _load_model(self) -> None:
         """Load the ML model from disk."""
-        if not os.path.exists(self.model_path):
-            self.logger.warning(f"Model file not found at {self.model_path}. Running in fallback mode.")
-            return
+        # Try multiple potential paths
+        paths_to_try = [
+            self.model_path,
+            os.path.join(os.path.dirname(__file__), 'models', 'phishing_model.pkl'),
+            os.path.join(os.path.dirname(__file__), '..', 'ml', 'models', 'phishing_model.pkl'),
+            os.path.join('backend', 'ml', 'models', 'phishing_model.pkl'),
+            os.path.join('ml', 'models', 'phishing_model.pkl'),
+        ]
         
-        try:
-            self.model = joblib.load(self.model_path)
-            self.logger.info(f"Successfully loaded ML model from {self.model_path}")
-        except Exception as e:
-            self.logger.error(f"Failed to load ML model: {e}")
-            self.model = None
+        for path in paths_to_try:
+            if os.path.exists(path):
+                try:
+                    self.model = joblib.load(path)
+                    self.logger.info(f"Successfully loaded ML model from {path}")
+                    return
+                except Exception as e:
+                    self.logger.warning(f"Failed to load model from {path}: {e}")
+        
+        self.logger.warning(f"Model file not found. Running in fallback mode.")
     
     def _load_model_info(self) -> None:
         """Load model metadata if available."""

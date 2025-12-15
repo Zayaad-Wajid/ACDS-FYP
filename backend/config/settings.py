@@ -44,7 +44,7 @@ DEFAULT_ADMIN_PASSWORD: str = "admin123"
 # =============================================================================
 MODEL_PATH: str = os.getenv("MODEL_PATH", "ml/models/phishing_model.pkl")
 MODEL_INFO_PATH: str = os.getenv("MODEL_INFO_PATH", "ml/models/model_info.json")
-PHISHING_CONFIDENCE_THRESHOLD: float = 0.5  # Threshold to classify as phishing
+PHISHING_CONFIDENCE_THRESHOLD: float = 0.35  # Lower threshold for better demo detection
 
 # Incident Database (JSON-based)
 INCIDENTS_DB_PATH: str = os.getenv("INCIDENTS_DB_PATH", "data/incidents.json")

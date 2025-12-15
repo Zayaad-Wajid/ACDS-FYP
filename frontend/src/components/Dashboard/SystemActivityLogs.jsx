@@ -269,19 +269,29 @@ const SystemActivityLogs = () => {
                   {(eventType === "email_scanned" ||
                     eventType === "email_processed") && (
                     <div className="text-xs text-slate-400">
-                      <span className="truncate block max-w-[300px]">
-                        {log.subject || log.details?.subject || "No subject"}
+                      <span className="truncate block max-w-[300px] font-medium text-slate-300">
+                        {log.subject ||
+                          log.details?.subject ||
+                          log.message ||
+                          "No subject"}
+                      </span>
+                      <span className="text-slate-500 text-[10px]">
+                        From: {log.sender || log.details?.sender || "Unknown"}
                       </span>
                       <div className="flex items-center space-x-3 mt-1">
                         <span
                           className={
-                            log.is_phishing_detected || log.details?.is_phishing
-                              ? "text-red-400"
+                            log.is_phishing ||
+                            log.is_phishing_detected ||
+                            log.details?.is_phishing
+                              ? "text-red-400 font-medium"
                               : "text-green-400"
                           }
                         >
-                          {log.is_phishing_detected || log.details?.is_phishing
-                            ? "⚠ Phishing"
+                          {log.is_phishing ||
+                          log.is_phishing_detected ||
+                          log.details?.is_phishing
+                            ? "⚠ Phishing Detected"
                             : "✓ Safe"}
                         </span>
                         <span>
@@ -292,15 +302,18 @@ const SystemActivityLogs = () => {
                           )}
                           %
                         </span>
-                        {log.correct_prediction !== undefined && (
+                        {log.severity && (
                           <span
-                            className={
-                              log.correct_prediction
-                                ? "text-green-400"
-                                : "text-red-400"
-                            }
+                            className={`px-1.5 py-0.5 rounded text-[10px] ${
+                              log.severity === "HIGH" ||
+                              log.severity === "CRITICAL"
+                                ? "bg-red-500/20 text-red-400"
+                                : log.severity === "MEDIUM"
+                                ? "bg-amber-500/20 text-amber-400"
+                                : "bg-slate-500/20 text-slate-400"
+                            }`}
                           >
-                            {log.correct_prediction ? "Correct" : "Incorrect"}
+                            {log.severity}
                           </span>
                         )}
                       </div>
@@ -310,29 +323,37 @@ const SystemActivityLogs = () => {
                   {(eventType === "threat_response" ||
                     eventType === "threat_detected") && (
                     <div className="text-xs text-slate-400">
-                      <span>
-                        Threat ID:{" "}
-                        {log.threat_id || log.details?.threat_id || "Unknown"}
-                      </span>
-                      <div className="flex items-center space-x-2 mt-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-red-400 font-medium">
+                          🚨 Threat ID:{" "}
+                          {log.threat_id || log.details?.threat_id || "Unknown"}
+                        </span>
                         <span
                           className={`px-1.5 py-0.5 rounded ${
+                            log.severity === "HIGH" ||
                             log.details?.severity === "HIGH" ||
+                            log.severity === "CRITICAL" ||
                             log.details?.severity === "CRITICAL"
                               ? "bg-red-500/20 text-red-400"
                               : "bg-amber-500/20 text-amber-400"
                           }`}
                         >
-                          {log.details?.severity || "MEDIUM"}
+                          {log.severity || log.details?.severity || "MEDIUM"}
                         </span>
                       </div>
+                      {log.subject && (
+                        <span className="text-slate-500 block mt-1">
+                          Subject: {log.subject}
+                        </span>
+                      )}
                       {(log.actions || log.details?.actions) && (
                         <div className="flex flex-wrap gap-1 mt-1">
+                          <span className="text-slate-500">Actions:</span>
                           {(log.actions || log.details?.actions || []).map(
                             (action, i) => (
                               <span
                                 key={i}
-                                className="px-1.5 py-0.5 bg-green-500/20 text-green-400 rounded"
+                                className="px-1.5 py-0.5 bg-blue-500/20 text-blue-400 rounded"
                               >
                                 {typeof action === "string"
                                   ? action.replace(/_/g, " ")

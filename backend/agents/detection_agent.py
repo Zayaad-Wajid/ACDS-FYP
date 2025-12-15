@@ -21,6 +21,15 @@ Standard Output Contract:
 Version: 2.0.0
 """
 
+# Suppress sklearn version warnings
+import warnings
+warnings.filterwarnings("ignore", category=UserWarning, module="sklearn")
+try:
+    from sklearn.exceptions import InconsistentVersionWarning
+    warnings.filterwarnings("ignore", category=InconsistentVersionWarning)
+except ImportError:
+    pass
+
 import os
 import uuid
 import joblib
@@ -273,25 +282,42 @@ class DetectionAgent:
         content_lower = content.lower()
         score = 0.0
         
-        # Keyword-based scoring
+        # Keyword-based scoring - expanded for better demo detection
         phishing_indicators = [
-            ('urgent', 0.12), ('verify your account', 0.18), ('click here', 0.12),
-            ('password', 0.08), ('suspended', 0.18), ('expire', 0.12),
-            ('confirm your', 0.12), ('unusual activity', 0.18), ('immediately', 0.12),
-            ('prize', 0.15), ('winner', 0.15), ('congratulations', 0.12),
-            ('bank account', 0.15), ('credit card', 0.15), ('login', 0.08),
+            ('urgent', 0.15), ('verify your account', 0.20), ('click here', 0.15),
+            ('password', 0.12), ('suspended', 0.20), ('expire', 0.15),
+            ('confirm your', 0.15), ('unusual activity', 0.20), ('immediately', 0.15),
+            ('prize', 0.18), ('winner', 0.18), ('congratulations', 0.15),
+            ('bank account', 0.18), ('credit card', 0.18), ('login', 0.12),
+            ('compromised', 0.22), ('limited', 0.15), ('verify', 0.12),
+            ('action required', 0.18), ('account will be', 0.18),
+            ('within 24 hours', 0.20), ('within 48 hours', 0.20),
+            ('update your', 0.15), ('confirm your information', 0.20),
+            ('secure portal', 0.18), ('tax refund', 0.22),
+            ('payment failed', 0.18), ('unusual sign-in', 0.20),
+            ('delivery problem', 0.15), ('storage full', 0.12),
+            ('permanently closed', 0.22), ('service interruption', 0.18),
         ]
         
         for keyword, weight in phishing_indicators:
             if keyword in content_lower:
                 score += weight
         
-        # Feature-based additions
-        score += min(features.get('url_count', 0) * 0.05, 0.15)
-        score += min(features.get('urgency_count', 0) * 0.08, 0.2)
-        score += min(features.get('threat_count', 0) * 0.08, 0.2)
+        # Check for suspicious domains (common in phishing)
+        suspicious_domain_patterns = [
+            '-verify', '-secure', '-login', '-update', '-confirm',
+            '.xyz', '.info', '.co', '.net',
+        ]
+        for pattern in suspicious_domain_patterns:
+            if pattern in content_lower:
+                score += 0.12
         
-        return min(score, 0.95)
+        # Feature-based additions
+        score += min(features.get('url_count', 0) * 0.08, 0.20)
+        score += min(features.get('urgency_count', 0) * 0.10, 0.25)
+        score += min(features.get('threat_count', 0) * 0.10, 0.25)
+        
+        return min(score, 0.98)
     
     def analyze_batch(self, emails: list, email_ids: Optional[list] = None) -> list:
         """

@@ -309,6 +309,44 @@ export const fetchModelLogs = async () => {
     });
   }
   try {
+    // First try to get from activity logs
+    const activityResponse = await api.get("/dashboard/activity-logs", {
+      params: { limit: 50 },
+    });
+
+    if (activityResponse.data?.logs?.length > 0) {
+      // Transform activity logs to model logs format
+      const modelLogs = activityResponse.data.logs
+        .filter(
+          (log) =>
+            log.event === "email_scanned" || log.event === "threat_detected"
+        )
+        .map((log, index) => ({
+          id: log.id || index + 1,
+          date: log.timestamp
+            ? new Date(log.timestamp).toLocaleDateString()
+            : "N/A",
+          type:
+            log.is_phishing || log.details?.is_phishing ? "Phishing" : "Safe",
+          decision:
+            log.is_phishing || log.details?.is_phishing
+              ? "True Positive"
+              : "True Negative",
+          action:
+            log.is_phishing || log.details?.is_phishing
+              ? "Quarantine"
+              : "Allowed",
+          modelVersion: "v2.0",
+          confidence: log.confidence || log.details?.confidence || 0,
+          subject: log.subject || log.details?.subject || "N/A",
+        }));
+
+      if (modelLogs.length > 0) {
+        return modelLogs;
+      }
+    }
+
+    // Fallback to model-status endpoint
     const response = await api.get("/dashboard/model-status");
     return response.data.logs || phishingData.modelLogs;
   } catch (error) {

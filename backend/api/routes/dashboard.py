@@ -264,29 +264,45 @@ async def get_activity_logs(
                 cursor = logs_col.find(query).sort("timestamp", -1).limit(limit)
                 logs = []
                 for log in cursor:
-                    logs.append({
+                    log_entry = {
                         "id": str(log.get("_id")),
                         "event": log.get("event", "unknown"),
+                        "action_type": log.get("action_type", log.get("event", "unknown")),
                         "message": log.get("message") or log.get("email_subject", "Activity logged"),
                         "session_id": log.get("session_id"),
+                        "subject": log.get("email_subject", "No subject"),
+                        "sender": log.get("sender", "Unknown"),
+                        "is_phishing": log.get("is_phishing", False),
+                        "confidence": log.get("confidence", 0),
+                        "severity": log.get("severity", "LOW"),
+                        "threat_id": log.get("threat_id"),
+                        "actions": log.get("actions", []),
                         "details": {
                             "is_phishing": log.get("is_phishing"),
                             "confidence": log.get("confidence"),
+                            "severity": log.get("severity"),
+                            "sender": log.get("sender"),
+                            "subject": log.get("email_subject"),
+                            "threat_id": log.get("threat_id"),
+                            "actions": log.get("actions", []),
                             "emails_processed": log.get("emails_processed"),
-                            "phishing_detected": log.get("phishing_detected")
+                            "phishing_detected": log.get("phishing_detected"),
+                            "expected": log.get("expected")
                         },
                         "timestamp": log.get("timestamp").isoformat() if log.get("timestamp") else datetime.now(timezone.utc).isoformat()
-                    })
-                
-                if logs:
-                    return {
-                        "success": True,
-                        "logs": logs,
-                        "count": len(logs),
-                        "data_source": "database"
                     }
+                    logs.append(log_entry)
+                
+                return {
+                    "success": True,
+                    "logs": logs,
+                    "count": len(logs),
+                    "data_source": "database"
+                }
         except Exception as e:
             print(f"Activity logs error: {e}")
+            import traceback
+            traceback.print_exc()
     
     # Fallback - return empty logs (will be populated by demo scheduler)
     return {

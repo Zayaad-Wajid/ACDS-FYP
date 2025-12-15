@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useDashboard } from "../context/DashboardContext";
 import {
   FileText,
@@ -19,6 +19,7 @@ import {
 
 const Reports = () => {
   const dashboardData = useDashboard() || {};
+  const { refreshData } = dashboardData;
   const threats = dashboardData.threats || [];
   const stats = dashboardData.stats || {};
   const logs = dashboardData.logs || [];
@@ -27,6 +28,13 @@ const Reports = () => {
     useState("threat-summary");
   const [dateRange, setDateRange] = useState("7days");
   const [generatedReport, setGeneratedReport] = useState(null);
+
+  // Refresh data on mount to get latest threats
+  useEffect(() => {
+    if (refreshData) {
+      refreshData();
+    }
+  }, []);
 
   const reportTypes = [
     {
@@ -58,27 +66,89 @@ const Reports = () => {
   const generateAIReport = async () => {
     setIsGenerating(true);
 
-    // Simulate AI report generation (replace with actual API call)
-    await new Promise((resolve) => setTimeout(resolve, 2000));
+    // Refresh data to get latest threats
+    if (refreshData) {
+      await refreshData();
+    }
 
-    const phishingThreats = threats.filter((t) => t.type === "Phishing");
-    const resolvedThreats = threats.filter((t) => t.status === "Resolved");
+    // Simulate AI report generation (replace with actual API call)
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+
+    // Get fresh threats data from context
+    const currentThreats = dashboardData.threats || [];
+
+    // Check if there are threats to report on
+    if (currentThreats.length === 0) {
+      setGeneratedReport({
+        generatedAt: new Date().toISOString(),
+        reportType: selectedReportType,
+        dateRange: dateRange,
+        summary: {
+          totalThreats: 0,
+          phishingDetected: 0,
+          autoResolved: 0,
+          pendingReview: 0,
+          modelAccuracy: stats?.accuracy || 97.2,
+        },
+        aiAnalysis: `
+## AI-Powered Threat Analysis
+
+### Overview
+No threats have been detected during the selected period. The Autonomous Cyber Defense System is actively monitoring for potential threats.
+
+### System Status
+- **Detection Engine**: Active and monitoring
+- **Model Accuracy**: ${stats?.accuracy || 97.2}%
+- **Last Check**: ${new Date().toLocaleString()}
+
+### Recommendations
+1. Continue monitoring for suspicious email activity
+2. Run a demo batch to test the detection system
+3. Review the dashboard for any pending alerts
+        `.trim(),
+        recommendations: [
+          {
+            priority: "Low",
+            title: "System Operating Normally",
+            description:
+              "No threats detected. Continue regular monitoring and security protocols.",
+          },
+          {
+            priority: "Medium",
+            title: "Run Demo Batch",
+            description:
+              "Consider running a demo batch to verify the detection system is functioning correctly.",
+          },
+        ],
+        threatBreakdown: [],
+        timeline: [],
+      });
+      setIsGenerating(false);
+      return;
+    }
+
+    const phishingThreats = currentThreats.filter(
+      (t) => t.type === "Phishing" || t.type === "phishing"
+    );
+    const resolvedThreats = currentThreats.filter(
+      (t) => t.status === "Resolved" || t.status === "resolved"
+    );
 
     const report = {
       generatedAt: new Date().toISOString(),
       reportType: selectedReportType,
       dateRange: dateRange,
       summary: {
-        totalThreats: threats.length,
+        totalThreats: currentThreats.length,
         phishingDetected: phishingThreats.length,
         autoResolved: resolvedThreats.length,
-        pendingReview: threats.length - resolvedThreats.length,
-        modelAccuracy: stats?.modelAccuracy || 97.2,
+        pendingReview: currentThreats.length - resolvedThreats.length,
+        modelAccuracy: stats?.accuracy || 97.2,
       },
-      aiAnalysis: generateAIAnalysis(threats, stats),
-      recommendations: generateRecommendations(threats),
-      threatBreakdown: generateThreatBreakdown(threats),
-      timeline: generateTimeline(threats),
+      aiAnalysis: generateAIAnalysis(currentThreats, stats),
+      recommendations: generateRecommendations(currentThreats),
+      threatBreakdown: generateThreatBreakdown(currentThreats),
+      timeline: generateTimeline(currentThreats),
     };
 
     setGeneratedReport(report);

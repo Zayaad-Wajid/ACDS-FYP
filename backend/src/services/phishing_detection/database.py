@@ -5,10 +5,18 @@ from typing import Dict, Any, List, Optional
 from uuid import UUID
 import logging
 
+# Load environment variables
+load_dotenv()
+
 from .models import Incident, Email, IncidentStatus
 
 # Configure logging
 logger = logging.getLogger(__name__)
+
+# Environment variables for MongoDB connection (matching main ACDS settings)
+MONGO_URI = os.getenv("MONGO_URI", "mongodb://acds:acds123@localhost:27017/acds?authSource=admin")
+DB_NAME = os.getenv("DB_NAME", "acds")
+INCIDENT_COLLECTION = os.getenv("INCIDENT_COLLECTION", "phishing_incidents")
 
 class IncidentDatabase:
     client: Optional[AsyncIOMotorClient] = None

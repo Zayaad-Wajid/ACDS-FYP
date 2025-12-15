@@ -1,3 +1,19 @@
+"""
+ACDS - Autonomous Cyber Defense System
+========================================
+Main FastAPI application with all API endpoints for threat detection,
+response automation, feedback loops, and report generation.
+"""
+
+# Suppress sklearn version warnings FIRST before any imports
+import warnings
+warnings.filterwarnings("ignore", category=UserWarning, module="sklearn")
+try:
+    from sklearn.exceptions import InconsistentVersionWarning
+    warnings.filterwarnings("ignore", category=InconsistentVersionWarning)
+except ImportError:
+    pass
+
 import os
 from dotenv import load_dotenv
 from fastapi import FastAPI, Depends, HTTPException, status

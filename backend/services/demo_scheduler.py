@@ -186,15 +186,45 @@ class DemoScheduler:
             result = await self._process_single_email(email_data, session_id)
             results.append(result)
             
-            # Log activity
+            # Log email scan activity
             await self._log_activity({
                 "event": "email_scanned",
+                "action_type": "email_processed",
                 "session_id": session_id,
-                "email_subject": email_data["subject"][:50],
+                "email_subject": email_data.get("subject", "No subject"),
+                "sender": email_data.get("sender", "Unknown"),
                 "is_phishing": result.get("is_phishing", False),
                 "confidence": result.get("confidence", 0),
+                "severity": result.get("severity", "LOW"),
+                "expected": email_data.get("expected", "unknown"),
                 "timestamp": datetime.now(timezone.utc)
             })
+            
+            # If phishing detected, log threat event
+            if result.get("is_phishing"):
+                await self._log_activity({
+                    "event": "threat_detected",
+                    "action_type": "threat_detected",
+                    "session_id": session_id,
+                    "threat_id": result.get("threat_id") or f"THR-{uuid.uuid4().hex[:8].upper()}",
+                    "email_subject": email_data.get("subject", "No subject"),
+                    "sender": email_data.get("sender", "Unknown"),
+                    "confidence": result.get("confidence", 0),
+                    "severity": result.get("severity", "MEDIUM"),
+                    "actions": result.get("actions_taken", ["quarantine_email", "block_sender"]),
+                    "timestamp": datetime.now(timezone.utc)
+                })
+                
+                # Also log automatic response
+                await self._log_activity({
+                    "event": "threat_resolved",
+                    "action_type": "threat_resolved",
+                    "session_id": session_id,
+                    "threat_id": result.get("threat_id") or f"THR-{uuid.uuid4().hex[:8].upper()}",
+                    "resolution": "auto_resolved",
+                    "actions": ["quarantine_email", "block_sender", "notify_admin"],
+                    "timestamp": datetime.now(timezone.utc)
+                })
         
         # Update stats
         phishing_found = sum(1 for r in results if r.get("is_phishing"))
@@ -239,20 +269,34 @@ class DemoScheduler:
             orchestrator = get_orchestrator_agent()
             
             if orchestrator:
-                # Run through full pipeline
-                result = await orchestrator.process_email(
-                    content=email_data["content"],
-                    sender=email_data.get("sender"),
-                    subject=email_data.get("subject"),
-                    recipient="demo@acds.local"
-                )
+                # Build full email content including subject and sender for better detection
+                full_content = f"""From: {email_data.get("sender", "unknown")}
+Subject: {email_data.get("subject", "No Subject")}
+
+{email_data["content"]}"""
+                
+                email_id = f"demo_{uuid.uuid4().hex[:8]}"
+                
+                # Run through full pipeline (synchronous method)
+                result = orchestrator.process_email(full_content, email_id)
+                
+                is_phishing = result.get("pipeline_results", {}).get("detection", {}).get("is_phishing", False)
+                confidence = result.get("pipeline_results", {}).get("detection", {}).get("confidence", 0)
+                severity = result.get("severity", "LOW")
+                
+                # Store threat in MongoDB if phishing detected
+                if is_phishing:
+                    await self._store_threat(email_data, result, session_id)
+                
+                # Store email scan in MongoDB
+                await self._store_email_scan(email_data, result, session_id)
                 
                 return {
                     "success": True,
-                    "is_phishing": result.get("pipeline_results", {}).get("detection", {}).get("is_phishing", False),
-                    "confidence": result.get("pipeline_results", {}).get("detection", {}).get("confidence", 0),
-                    "severity": result.get("severity", "LOW"),
-                    "threat_id": result.get("threat_id"),
+                    "is_phishing": is_phishing,
+                    "confidence": confidence,
+                    "severity": severity,
+                    "threat_id": result.get("incident_id"),
                     "actions_taken": result.get("actions_taken", []),
                     "expected": email_data.get("expected", "unknown")
                 }
@@ -287,11 +331,76 @@ class DemoScheduler:
             
             logs_col = get_collection("activity_logs")
             if logs_col is not None:
-                log_data["_id"] = None  # Let MongoDB generate ID
+                # Remove _id to let MongoDB generate it
+                if "_id" in log_data:
+                    del log_data["_id"]
                 log_data["created_at"] = datetime.now(timezone.utc)
                 logs_col.insert_one(log_data)
+                print(f"✅ Activity logged: {log_data.get('event', 'unknown')}")
         except Exception as e:
             print(f"Failed to log activity: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    async def _store_threat(self, email_data: dict, result: dict, session_id: str):
+        """Store detected threat in MongoDB threats collection."""
+        try:
+            from database.connection import get_collection
+            
+            threats_col = get_collection("threats")
+            if threats_col is not None:
+                confidence = result.get("pipeline_results", {}).get("detection", {}).get("confidence", 0)
+                threat_doc = {
+                    "threat_id": result.get("incident_id", f"THR-{uuid.uuid4().hex[:8].upper()}"),
+                    "session_id": session_id,
+                    "threat_type": "Phishing",  # Match expected field name
+                    "type": "Phishing",
+                    "severity": result.get("severity", "MEDIUM"),
+                    "status": "resolved",  # Auto-resolved by system
+                    "confidence": round(confidence * 100, 1) if confidence <= 1 else confidence,  # Convert to percentage
+                    "risk_score": result.get("risk_score", 0),
+                    "email_subject": email_data.get("subject", "No Subject"),
+                    "email_sender": email_data.get("sender", "Unknown"),  # Match expected field name
+                    "sender": email_data.get("sender", "Unknown"),
+                    "detected_at": datetime.now(timezone.utc),
+                    "resolved_at": datetime.now(timezone.utc),
+                    "actions_taken": result.get("actions_taken", ["quarantine_email", "block_sender"]),
+                    "description": f"Phishing email detected from {email_data.get('sender', 'Unknown')}",
+                    "email_preview": email_data.get("content", "")[:200]
+                }
+                threats_col.insert_one(threat_doc)
+                print(f"✅ Threat stored in MongoDB: {threat_doc['threat_id']} - Severity: {threat_doc['severity']} - Confidence: {threat_doc['confidence']}%")
+        except Exception as e:
+            print(f"Failed to store threat: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    async def _store_email_scan(self, email_data: dict, result: dict, session_id: str):
+        """Store email scan result in MongoDB email_scans collection."""
+        try:
+            from database.connection import get_collection
+            
+            scans_col = get_collection("email_scans")
+            if scans_col is not None:
+                is_phishing = result.get("pipeline_results", {}).get("detection", {}).get("is_phishing", False)
+                scan_doc = {
+                    "scan_id": f"SCAN-{uuid.uuid4().hex[:8].upper()}",
+                    "email_id": result.get("email_id", f"email_{uuid.uuid4().hex[:8]}"),
+                    "session_id": session_id,
+                    "subject": email_data.get("subject", "No Subject"),
+                    "sender": email_data.get("sender", "Unknown"),
+                    "is_phishing": is_phishing,
+                    "confidence": result.get("pipeline_results", {}).get("detection", {}).get("confidence", 0),
+                    "severity": result.get("severity", "LOW") if is_phishing else "SAFE",
+                    "scanned_at": datetime.now(timezone.utc),
+                    "processing_time_ms": result.get("processing_time_ms", 0)
+                }
+                scans_col.insert_one(scan_doc)
+                print(f"✅ Email scan stored: {scan_doc['scan_id']} - {'PHISHING' if is_phishing else 'SAFE'}")
+        except Exception as e:
+            print(f"Failed to store email scan: {e}")
+            import traceback
+            traceback.print_exc()
     
     def set_interval(self, seconds: int):
         """Set the processing interval in seconds."""

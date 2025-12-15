@@ -1,341 +1,180 @@
-"""
-ACDS - Autonomous Cyber Defense System
-========================================
-Main FastAPI application with all API endpoints for threat detection,
-response automation, feedback loops, and report generation.
-"""
-
 import os
-import sys
-from datetime import datetime, timezone
-from contextlib import asynccontextmanager
+from dotenv import load_dotenv
+from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi.responses import HTMLResponse, Response # Added Response
+import uvicorn
+import logging
 
-from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from backend.src.services.phishing_detection.database import get_incident_db, IncidentDatabase
+from backend.src.services.phishing_detection.orchestrator_agent import get_orchestrator_agent
+from backend.src.services.phishing_detection.data_loader import get_email_data_loader
+from backend.src.services.phishing_detection.models import Email, Incident, IncidentStatus # Added IncidentStatus
+from backend.src.services.phishing_detection.report_generator import get_report_generator # Added get_report_generator
+from typing import Dict, Any, Optional # Added for get_all_incidents endpoint response_model
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
-# Add backend to path for imports
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# Load environment variables
+load_dotenv()
 
-# Import configuration
-try:
-    from config.settings import CORS_ORIGINS, API_PREFIX, API_VERSION
-except ImportError:
-    CORS_ORIGINS = ["http://localhost:5173", "http://127.0.0.1:5173"]
-    API_PREFIX = "/api/v1"
-    API_VERSION = "v1"
-
-# Import routers
-try:
-    from api.routes.threats import router as threats_router
-    from api.routes.feedback import router as feedback_router
-    from api.routes.reports import router as reports_router
-    from api.routes.auth import router as auth_router
-    from api.routes.dashboard import router as dashboard_router
-    from api.routes.testing import router as testing_router
-    from api.routes.demo import router as demo_router
-except ImportError as e:
-    print(f"Warning: Could not import routers: {e}")
-    threats_router = None
-    feedback_router = None
-    reports_router = None
-    auth_router = None
-    dashboard_router = None
-    testing_router = None
-    demo_router = None
-
-# Import services for health check
-try:
-    from ml.phishing_service import get_phishing_service
-    from agents.orchestrator_agent import get_orchestrator_agent
-except ImportError:
-    get_phishing_service = None
-    get_orchestrator_agent = None
-
-# Import database
-try:
-    from database.connection import Database
-except ImportError:
-    Database = None
-
-
-# Application startup/shutdown
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """Manage application lifecycle."""
-    # Startup
-    print("=" * 50)
-    print("ACDS Backend Starting...")
-    print(f"API Version: {API_VERSION}")
-    print(f"Time: {datetime.now(timezone.utc).isoformat()}")
-    
-    # Initialize Database
-    if Database:
-        try:
-            connected = await Database.connect()
-            if connected:
-                print("✅ MongoDB connected successfully")
-            else:
-                print("⚠️ MongoDB connection failed - running without database")
-            # Also init sync connection for routes that need it
-            Database.connect_sync()
-        except Exception as e:
-            print(f"⚠️ Database initialization error: {e}")
-    else:
-        print("⚠️ Database module not available")
-    
-    # Initialize ML service
-    if get_phishing_service:
-        service = get_phishing_service()
-        if service.is_model_loaded():
-            print("✅ ML Model loaded successfully")
-        else:
-            print("⚠️ ML Model not loaded - running in fallback mode")
-    
-    # Initialize Orchestrator
-    if get_orchestrator_agent:
-        orchestrator = get_orchestrator_agent()
-        stats = orchestrator.get_stats()
-        agents_status = stats.get('agents_available', {})
-        print(f"✅ Orchestrator initialized - Agents: {agents_status}")
-    else:
-        print("⚠️ Orchestrator not available")
-    
-    print("=" * 50)
-    
-    yield
-    
-    # Shutdown
-    print("ACDS Backend shutting down...")
-    
-    # Close database connection
-    if Database:
-        await Database.disconnect()
-        print("✅ Database connections closed")
-
-
-# Create FastAPI application
 app = FastAPI(
-    title="ACDS - Autonomous Cyber Defense System",
-    description="""
-    AI-powered cybersecurity platform for phishing email detection,
-    automated threat response, and security analytics.
-    
-    ## Features
-    
-    * **Threat Detection** - ML-based phishing email detection
-    * **Automated Response** - Quarantine, block, and notify on threats
-    * **Feedback Loop** - Continuous model improvement from user feedback
-    * **AI Reports** - Automated security report generation
-    * **Real-time Monitoring** - Dashboard and analytics
-    
-    ## Authentication
-    
-    Most endpoints require JWT authentication. Use `/api/v1/auth/login` to obtain a token.
-    
-    Default credentials (development only):
-    - Email: admin@acds.com
-    - Password: admin123
-    """,
-    version="1.0.0",
-    lifespan=lifespan,
-    docs_url="/docs",
-    redoc_url="/redoc",
+    title="ACDS Phishing Detection Module",
+    description="API for automated phishing detection, incident management, and reporting.",
+    version="1.0.0"
 )
 
-# Configure CORS
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=CORS_ORIGINS,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# Root endpoint
+@app.get("/", response_class=HTMLResponse, summary="Root endpoint")
+async def read_root():
+    return """
+    <html>
+        <head>
+            <title>ACDS Phishing Detection Module</title>
+        </head>
+        <body>
+            <h1>ACDS Phishing Detection Module API</h1>
+            <p>Visit /docs for API documentation.</p>
+        </body>
+    </html>
+    """
 
+# Example of an endpoint for batch processing (internal/testing)
+@app.post("/api/v1/phishing-detection/process-emails", summary="Initiate batch email processing for phishing detection")
+async def process_emails_batch(
+    dataset_name: str = "zefang-liu/phishing-email-dataset",
+    split: str = "train",
+    raw_text_column: str = "Email Text",
+    incident_db: IncidentDatabase = Depends(get_incident_db)
+):
+    logger.info(f"Received request to process emails from dataset: {dataset_name}, split: {split}")
+    
+    data_loader = get_email_data_loader(dataset_name, split, raw_text_column)
+    emails_to_process = data_loader.load_emails_from_hf_dataset()
 
-# Include routers
-if threats_router:
-    app.include_router(threats_router, prefix=API_PREFIX)
-if feedback_router:
-    app.include_router(feedback_router, prefix=API_PREFIX)
-if reports_router:
-    app.include_router(reports_router, prefix=API_PREFIX)
-if auth_router:
-    app.include_router(auth_router, prefix=API_PREFIX)
-if dashboard_router:
-    app.include_router(dashboard_router, prefix=API_PREFIX)
-if testing_router:
-    app.include_router(testing_router, prefix=API_PREFIX)
-if demo_router:
-    app.include_router(demo_router, prefix=API_PREFIX)
+    if not emails_to_process:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No emails found in the specified dataset."
+        )
+    
+    orchestrator = await get_orchestrator_agent(incident_db)
+    processed_count = 0
+    incidents_created = 0
 
-
-# =============================================================================
-# ROOT ENDPOINTS
-# =============================================================================
-
-@app.get("/")
-async def root():
-    """Root endpoint - API information."""
+    for email in emails_to_process:
+        incident = await orchestrator.process_email_workflow(email)
+        processed_count += 1
+        if incident:
+            incidents_created += 1
+            
     return {
-        "name": "ACDS - Autonomous Cyber Defense System",
-        "version": "1.0.0",
-        "api_version": API_VERSION,
-        "status": "operational",
-        "documentation": "/docs",
-        "endpoints": {
-            "auth": f"{API_PREFIX}/auth",
-            "dashboard": f"{API_PREFIX}/dashboard",
-            "threats": f"{API_PREFIX}/threats",
-            "feedback": f"{API_PREFIX}/feedback",
-            "reports": f"{API_PREFIX}/reports",
-            "testing": f"{API_PREFIX}/testing",
-            "demo": f"{API_PREFIX}/demo",
-        }
+        "message": f"Successfully processed {processed_count} emails. Created {incidents_created} incidents.",
+        "processed_emails": processed_count,
+        "incidents_created": incidents_created
     }
 
+@app.get("/api/v1/phishing-detection/incidents/{incident_id}", response_model=Incident, summary="Retrieve a specific phishing incident by ID")
+async def get_incident_by_id(
+    incident_id: str,
+    incident_db: IncidentDatabase = Depends(get_incident_db)
+):
+    incident = await incident_db.get_incident(incident_id)
+    if not incident:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Incident with ID {incident_id} not found."
+        )
+    return incident
 
-@app.get("/health")
-async def health_check():
-    """Health check endpoint."""
-    health_status = {
-        "status": "healthy",
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "services": {
-            "api": True,
-            "ml_model": False,
-            "orchestrator": False,
-            "agents": {
-                "detection": False,
-                "explainability": False,
-                "response": False
-            }
-        }
+@app.get("/api/v1/phishing-detection/incidents", response_model=Dict[str, Any], summary="Retrieve a list of all phishing incidents")
+async def get_all_incidents(
+    status: Optional[IncidentStatus] = None,
+    limit: int = 100,
+    offset: int = 0,
+    incident_db: IncidentDatabase = Depends(get_incident_db)
+):
+    query = {}
+    if status:
+        query["status"] = status.value
+
+    incidents = await incident_db.find_incidents(query, limit, offset)
+    total_count = await incident_db.count_incidents(query)
+
+    return {
+        "total": total_count,
+        "incidents": incidents
     }
-    
-    # Check ML service
-    if get_phishing_service:
-        try:
-            service = get_phishing_service()
-            health_status["services"]["ml_model"] = service.is_model_loaded()
-        except:
-            pass
-    
-    # Check Orchestrator and agents
-    if get_orchestrator_agent:
-        try:
-            orchestrator = get_orchestrator_agent()
-            stats = orchestrator.get_stats()
-            health_status["services"]["orchestrator"] = True
-            health_status["services"]["agents"] = stats.get('agents_available', {})
-        except:
-            pass
-    
-    # Overall status
-    if not health_status["services"]["orchestrator"]:
-        health_status["status"] = "degraded"
-    
-    return health_status
 
-
-@app.get(f"{API_PREFIX}/status")
-async def api_status():
-    """Get detailed API status and statistics."""
-    status = {
-        "api_version": API_VERSION,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "uptime": "N/A",  # Would track actual uptime
-        "endpoints_available": [],
-        "statistics": {}
-    }
+@app.get("/api/v1/phishing-detection/incidents/{incident_id}/report/pdf", summary="Generate and retrieve a PDF report for a specific phishing incident")
+async def get_incident_pdf_report(
+    incident_id: str,
+    incident_db: IncidentDatabase = Depends(get_incident_db)
+):
+    incident = await incident_db.get_incident(incident_id)
+    if not incident:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Incident with ID {incident_id} not found."
+        )
     
-    # List available endpoints
-    if threats_router:
-        status["endpoints_available"].append("threats")
-    if feedback_router:
-        status["endpoints_available"].append("feedback")
-    if reports_router:
-        status["endpoints_available"].append("reports")
-    if auth_router:
-        status["endpoints_available"].append("auth")
-    
-    # Get ML statistics
-    if get_phishing_service:
-        try:
-            service = get_phishing_service()
-            status["statistics"]["detection"] = service.get_stats()
-        except:
-            pass
-    
-    return status
-
-
-# =============================================================================
-# ERROR HANDLERS
-# =============================================================================
-
-@app.exception_handler(HTTPException)
-async def http_exception_handler(request, exc):
-    """Handle HTTP exceptions."""
-    return JSONResponse(
-        status_code=exc.status_code,
-        content={
-            "success": False,
-            "error": exc.detail,
-            "status_code": exc.status_code
-        }
+    # In a real scenario, you'd fetch the original email associated with the incident
+    # For now, we'll need to mock or fetch a dummy email for report generation if not stored with incident
+    # For now, just generate a dummy email for the report
+    dummy_email = Email(
+        raw_content="Dummy email content for report generation.",
+        sender="dummy@example.com",
+        recipients=["analyst@example.com"],
+        subject=f"Report for Incident {incident_id}",
+        body="This is a dummy body for the report generation.",
+        attachments=[]
     )
 
-
-@app.exception_handler(Exception)
-async def general_exception_handler(request, exc):
-    """Handle general exceptions."""
-    return JSONResponse(
-        status_code=500,
-        content={
-            "success": False,
-            "error": "Internal server error",
-            "detail": str(exc)
-        }
-    )
-
-
-# =============================================================================
-# QUICK TEST ENDPOINTS
-# =============================================================================
-
-@app.post(f"{API_PREFIX}/quick-scan")
-async def quick_scan(content: str):
-    """
-    Quick endpoint to scan email content without full request body.
-    For testing purposes.
-    """
-    if not get_phishing_service:
-        raise HTTPException(status_code=503, detail="ML service not available")
+    report_generator = await get_report_generator(incident_db)
     
-    service = get_phishing_service()
-    result = service.predict(content)
+    # Define a temporary path for the PDF
+    pdf_output_path = f"reports/temp_incident_report_{incident_id}.pdf"
     
-    return {
-        "success": True,
-        "is_phishing": result.get("is_phishing"),
-        "confidence": result.get("confidence"),
-        "severity": result.get("severity"),
-        "recommendation": result.get("recommendation")
-    }
+    try:
+        explanation = incident.explanation_details.model_dump() if incident.explanation_details else {}
+        await report_generator.generate_incident_report_pdf(incident, dummy_email, explanation, pdf_output_path)
+        
+        with open(pdf_output_path, "rb") as pdf_file:
+            pdf_content = pdf_file.read()
+        
+        # Clean up the temporary PDF file
+        os.remove(pdf_output_path)
 
+        return Response(content=pdf_content, media_type="application/pdf", headers={"Content-Disposition": f"attachment; filename=incident_report_{incident_id}.pdf"})
+    except Exception as e:
+        logger.error(f"Error generating or serving PDF report for incident {incident_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to generate PDF report."
+        )
 
-# =============================================================================
-# RUN SERVER
-# =============================================================================
+# Startup event for database connection
+@app.on_event("startup")
+async def startup_db_client():
+    logger.info("Connecting to MongoDB on startup...")
+    try:
+        await get_incident_db() # This will connect the singleton incident_db
+        logger.info("MongoDB connection established successfully.")
+    except Exception as e:
+        logger.error(f"Failed to connect to MongoDB on startup: {e}")
+        # Optionally, re-raise or handle more gracefully depending on desired behavior
+        # For now, let's allow startup to complete but log error
+        pass
+
+# Shutdown event for database disconnection
+@app.on_event("shutdown")
+async def shutdown_db_client():
+    logger.info("Disconnecting from MongoDB on shutdown...")
+    incident_db = await get_incident_db()
+    await incident_db.disconnect()
+    logger.info("MongoDB connection closed.")
 
 if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(
-        "main:app",
-        host="0.0.0.0",
-        port=8000,
-        reload=True,
-        log_level="info"
-    )
-
+    # Ensure uvicorn runs the app from the correct module
+    # 'backend.main:app' refers to the 'app' object in 'backend/main.py'
+    uvicorn.run("backend.main:app", host="0.0.0.0", port=8000, reload=True)

@@ -24,11 +24,6 @@ async def run_phishing_detection_workflow():
     # Create reports directory if it doesn't exist
     os.makedirs("reports", exist_ok=True)
 
-    # Debugging: Print MONGO_URI and DB_NAME to confirm they are loaded
-    from backend.src.services.phishing_detection.database import MONGO_URI, DB_NAME
-    print(f"DEBUG: MONGO_URI from env: {MONGO_URI}")
-    print(f"DEBUG: DB_NAME from env: {DB_NAME}")
-
     # Connect to MongoDB
     await incident_db.connect()
 

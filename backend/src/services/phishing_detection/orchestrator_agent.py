@@ -1,120 +1,125 @@
 import logging
 from typing import Dict, Any, Optional
 
-from .models import Email, Incident, IncidentStatus
+from .models import Email, Incident, IncidentStatus, ExplanationDetails
 from .detection_agent import DetectionAgent, get_detection_agent
 from .incident_manager import IncidentManager, get_incident_manager
 from .explainability_agent import ExplainabilityAgent, get_explainability_agent
-from .orchestration_trigger import OrchestrationTrigger, get_orchestration_trigger
 from .response_agent import ResponseAgent, get_response_agent
 from .report_generator import ReportGenerator, get_report_generator
-from .database import IncidentDatabase # New import
+from .database import IncidentDatabase # Import for passing to ReportGenerator
 
 logger = logging.getLogger(__name__)
 
 class OrchestratorAgent:
-    """
-    Orchestrates the end-to-end phishing incident handling workflow for a single email.
-    """
-    def __init__(self, 
-                 detection_agent: DetectionAgent, 
-                 incident_manager: IncidentManager, 
+    def __init__(self,
+                 detection_agent: DetectionAgent,
+                 incident_manager: IncidentManager,
                  explainability_agent: ExplainabilityAgent,
-                 orchestration_trigger: OrchestrationTrigger,
                  response_agent: ResponseAgent,
-                 report_generator: ReportGenerator # New agent
-                ):
+                 report_generator: ReportGenerator):
         self.detection_agent = detection_agent
         self.incident_manager = incident_manager
         self.explainability_agent = explainability_agent
-        self.orchestration_trigger = orchestration_trigger
         self.response_agent = response_agent
-        self.report_generator = report_generator # Assign new agent
+        self.report_generator = report_generator
         logger.info("OrchestratorAgent initialized.")
 
     async def process_email_workflow(self, email: Email) -> Optional[Incident]:
-        """
-        Executes the full phishing incident handling workflow for a given email.
-        
-        EMAIL INPUT    ↓
-        DETECTION AGENT    (phishing?)    ↓
-        INCIDENT CREATED IN DB    ↓
-        EXPLAINABILITY AGENT    (why phishing?)    ↓
-        ORCHESTRATION AGENT    (what should we do?)    ↓
-        RESPONSE AGENT    (block sender? report?)    ↓
-        UPDATE INCIDENT + TIMELINE    ↓
-        REPORT GENERATOR (not part of orchestration, but follows it)
-        """
-        
-        logger.info(f"Orchestrator: Starting workflow for email ID: {email.id}")
+        logger.info(f"Orchestrator: Starting workflow for email {email.id} (Subject: {email.subject}).")
+        incident = None
 
-        # 1. DETECTION AGENT
-        detection_results = self.detection_agent.detect_phishing(email)
-        logger.info(f"Orchestrator: Detection Agent results for {email.id}: {detection_results['is_phishing']}")
+        try:
+            # 1. Detect Phishing
+            detection_results = self.detection_agent.detect_phishing(email)
+            logger.info(f"Orchestrator: Email {email.id} detection result: Is Phishing? {detection_results['is_phishing']}, Confidence: {detection_results['confidence_score']:.2f}")
 
-        if not detection_results["is_phishing"]:
-            logger.info(f"Orchestrator: Email {email.id} not identified as phishing. Ending workflow.")
+            if detection_results["is_phishing"]:
+                # 2. Create Incident
+                incident = await self.incident_manager.create_new_incident(email, detection_results)
+                if incident:
+                    logger.info(f"Orchestrator: Incident {incident.id} created for email {email.id}.")
+
+                    # 3. Explain Phishing
+                    # The explanation is now generated from the incident object, which already contains explanation_details
+                    explanation_output = self.explainability_agent.generate_explanation(incident)
+                    logger.info(f"Orchestrator: Explanation generated for incident {incident.id}: {explanation_output.summary}")
+                    
+                    # Update incident with the generated explanation if it was not already fully populated
+                    if not incident.explanation_details:
+                        incident.explanation_details = explanation_output
+                        await self.incident_manager.update_incident_status(
+                            str(incident.id),
+                            incident.status, # Keep current status
+                            "Orchestrator",
+                            {"explanation_updated": True}
+                        )
+
+                    # 4. Trigger Response Agent (placeholder for MVP)
+                    response_action_results = await self.response_agent.take_action(incident)
+                    logger.info(f"Orchestrator: Response agent action for incident {incident.id}: {response_action_results}")
+                    
+                    # 5. Update Incident + Timeline with response action
+                    await self.incident_manager.add_timeline_entry(
+                        str(incident.id),
+                        f"Response action simulated: {response_action_results.get('action_taken', 'unknown')}",
+                        response_action_results
+                    )
+                    # Update incident status to 'INVESTIGATING' or 'REMEDIATED' based on response action
+                    # For MVP, we'll mark it as investigating or remediated
+                    new_status = IncidentStatus.REMEDIATED if response_action_results.get('action_taken') == 'simulated_quarantine_alert' else IncidentStatus.INVESTIGATING
+                    incident = await self.incident_manager.update_incident_status(str(incident.id), new_status, "Orchestrator")
+
+
+                    # 6. Generate Report
+                    if incident:
+                        pdf_output_path = f"reports/incident_report_{incident.id}.pdf"
+                        # Re-fetch incident to ensure latest timeline and status
+                        latest_incident = await self.incident_manager.get_incident(str(incident.id))
+                        if latest_incident:
+                            await self.report_generator.generate_incident_report_pdf(latest_incident, email, explanation_output.model_dump(), pdf_output_path)
+                            logger.info(f"Orchestrator: PDF report saved for incident {incident.id} to {pdf_output_path}")
+                        else:
+                            logger.error(f"Orchestrator: Failed to re-fetch incident {incident.id} for report generation.")
+                else:
+                    logger.error(f"Orchestrator: Failed to create incident for email {email.id}.")
+            else:
+                logger.info(f"Orchestrator: Email {email.id} is not detected as phishing. No incident created.")
+
+        except Exception as e:
+            logger.error(f"Orchestrator: Error processing email {email.id}: {e}", exc_info=True)
+            if incident: # If incident was created before error
+                await self.incident_manager.add_timeline_entry(
+                    str(incident.id),
+                    "Workflow processing failed",
+                    {"error": str(e)}
+                )
+                await self.incident_manager.update_incident_status(
+                    str(incident.id),
+                    IncidentStatus.FAILED,
+                    "Orchestrator_Error"
+                )
             return None
-
-        # 2. INCIDENT CREATED IN DB
-        incident = await self.incident_manager.create_new_incident(email, detection_results)
-        if not incident:
-            logger.error(f"Orchestrator: Failed to create incident for email {email.id}. Ending workflow.")
-            return None
-        logger.info(f"Orchestrator: Incident {incident.id} created for email {email.id}.")
-
-        # 3. EXPLAINABILITY AGENT
-        explanation = self.explainability_agent.generate_explanation(incident)
-        logger.info(f"Orchestrator: Explanation generated for incident {incident.id}.")
-        # Update incident with explanation details
-        await self.incident_manager.add_timeline_entry(
-            incident.id, 
-            "Explanation Generated", 
-            {"explanation_summary": explanation.get("summary"), "explanation_details": explanation.get("details")}
-        )
         
-        # 4. ORCHESTRATION TRIGGER
-        orchestration_success = await self.orchestration_trigger.trigger_orchestration(incident)
-        logger.info(f"Orchestrator: Orchestration triggered for incident {incident.id}: {orchestration_success}")
-        await self.incident_manager.add_timeline_entry(
-            incident.id, 
-            "Orchestration Triggered", 
-            {"status": orchestration_success}
-        )
-        
-        # 5. RESPONSE AGENT
-        response_actions = await self.response_agent.execute_response(incident)
-        logger.info(f"Orchestrator: Response actions for incident {incident.id}: {response_actions.get('summary')}")
-        await self.incident_manager.add_timeline_entry(
-            incident.id, 
-            "Response Actions Executed", 
-            {"actions_summary": response_actions.get("summary"), "details": response_actions.get("status_details")}
-        )
-
-        # 6. UPDATE INCIDENT (Status and Timeline are handled by IncidentManager calls above)
-        # Update incident status based on automated actions if any, or to a final review state
-        updated_incident = await self.incident_manager.update_incident_status(
-            incident.id, IncidentStatus.CONFIRMED_PHISHING, analyst_id="Automated_Orchestrator"
-        )
-        if updated_incident:
-            logger.info(f"Orchestrator: Incident {updated_incident.id} status updated to {updated_incident.status.value}.")
-            incident = updated_incident # Keep the latest state of the incident
-            
-            # Generate PDF Report
-            pdf_output_path = f"reports/incident_report_{incident.id}.pdf"
-            await self.report_generator.generate_incident_report_pdf(incident, email, explanation, pdf_output_path)
-            logger.info(f"Orchestrator: PDF report generated for incident {incident.id} at {pdf_output_path}")
-        else:
-            logger.error(f"Orchestrator: Failed to update final incident status for {incident.id}.")
-            
         return incident
 
+_orchestrator_agent_instance: Optional[OrchestratorAgent] = None
+
 async def get_orchestrator_agent(incident_db: IncidentDatabase) -> OrchestratorAgent:
-    """Returns a singleton-like instance of the OrchestratorAgent."""
-    detection_agent = get_detection_agent()
-    incident_manager = await get_incident_manager()
-    explainability_agent = get_explainability_agent()
-    orchestration_trigger = get_orchestration_trigger()
-    response_agent = get_response_agent()
-    report_generator = await get_report_generator(incident_db) # Initialize ReportGenerator with incident_db
-    return OrchestratorAgent(detection_agent, incident_manager, explainability_agent, orchestration_trigger, response_agent, report_generator)
+    global _orchestrator_agent_instance
+    if _orchestrator_agent_instance is None:
+        # Initialize dependencies
+        detection_agent = get_detection_agent()
+        incident_manager = await get_incident_manager(incident_db)
+        explainability_agent = get_explainability_agent()
+        response_agent = get_response_agent()
+        report_generator = await get_report_generator(incident_db) # Pass incident_db here
+        
+        _orchestrator_agent_instance = OrchestratorAgent(
+            detection_agent,
+            incident_manager,
+            explainability_agent,
+            response_agent,
+            report_generator
+        )
+    return _orchestrator_agent_instance
